@@ -1,3 +1,5 @@
+**Nice to have**: Aktorzy w symulacji jako agenci ML wytrenowani na zebranych danych; Przynajmniej jako część aktorów.
+
 ## Ruch pojazdów
 
 **Potrzebne**: Dane z ruchu kierowców, mapowanie na model ML kierowców w symulacji, żeby wyłapać styl jazdy przeciętnego kierowcy, najlepiej z konkretnych miejsc, które będą brane pod uwagę.
