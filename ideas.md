@@ -1,5 +1,15 @@
 **Nice to have**: Aktorzy w symulacji jako agenci ML wytrenowani na zebranych danych; Przynajmniej jako część aktorów.
 
+## Konkretne problemy operacyjne
+
+### Kolejność operacji na Lotnisku Chopina przy zamkniętym pasie
+
+Symulacja ma odpowiedzieć, jaka polityka ustalania kolejności startów i lądowań najlepiej ogranicza propagację opóźnień podczas czasowego zamknięcia jednego pasa na Lotnisku Chopina. Model obejmie kolejki przylotów i odlotów, czasy kołowania i obsługi naziemnej, stanowiska postojowe oraz utratę kolejnych slotów. Szczegółowy opis znajduje się w pliku [`lotnisko-chopina-zamkniety-pas.md`](lotnisko-chopina-zamkniety-pas.md).
+
+### Dynamiczny odbiór dużych pojemników BRB w Krakowie
+
+Symulacja ma zbadać, czy MPO Kraków powinno opróżniać duże pojemniki na odpady segregowane według stałego harmonogramu, czy dynamicznie na podstawie przewidywanego poziomu zapełnienia. Model obejmie zmienne tempo napełniania, pojemność pojazdów, czas opróżniania, zgłoszenia przepełnienia i przeplanowanie tras. Szczegółowy opis znajduje się w pliku [`pojemniki-brb-krakow.md`](pojemniki-brb-krakow.md).
+
 ## Logistyka i infrastruktura
 
 ### Autonomiczny magazyn i system kompletacji zamówień
