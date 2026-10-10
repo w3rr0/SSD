@@ -22,7 +22,7 @@ Symulacja sieci kolejowej z pociągami pasażerskimi i towarowymi, ograniczoną 
 
 ### Symulacja ruchu kierowców i pojazdów autonomicznych
 
-Porównanie wypadkowości, przepustowości i dynamiki ruchu samochodowego przy danym % pojazdów autonomicznych.
+Porównanie wypadkowości, przepustowości i dynamiki ruchu samochodowego przy różnym udziale pojazdów autonomicznych oraz różnych stylach jazdy kierowców. Szczegółowy opis znajduje się w pliku [`ruch-kierowcow-i-pojazdow-autonomicznych.md`](ruch-kierowcow-i-pojazdow-autonomicznych.md).
 
 Pojazdy autonimiczne będa reprezentowane za pomcocą deterministycznych warunków (np. if else)
 
@@ -30,7 +30,7 @@ Pojazdy autonimiczne będa reprezentowane za pomcocą deterministycznych warunk�
 
 ### Symulacja zastąpienia skrzyżowań rondami
 
-Budowa ronda mieszczącego się na obszarze danego skrzyżowania oraz zasymulowanie przepustowości w obu przypadkach
+Budowa modelu ronda mieszczącego się na obszarze istniejącego skrzyżowania i porównanie obu rozwiązań przy różnym natężeniu oraz strukturze ruchu. Szczegółowy opis znajduje się w pliku [`zastepowanie-skrzyzowan-rondami.md`](zastepowanie-skrzyzowan-rondami.md).
 
 **Teza**: Ronda zawsze mają większą przepustowość dla małych i średnich skrzyżowań (plus są tańsze w budowie), natomiast skrzyżowania mają sens dopiero przy większym ruchu.
 Znaleźć ten punkt graniczny za pomocą symulacji z różnym natężeniem ruchu drogowego
