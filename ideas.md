@@ -38,6 +38,10 @@ Pojazdy autonimiczne będa reprezentowane za pomcocą deterministycznych warunk�
 
 **Teza**: Pojazdy autonomiczne usprawniają ruch drogowy oraz robią go bardziej bezpiecznym.
 
+### Adaptacja kierowców do deterministycznych pojazdów autonomicznych na rondzie
+
+Badanie, czy kierowcy nauczeni na podstawie rzeczywistego ruchu zaczną wykorzystywać przewidywalne zachowanie deterministycznych pojazdów autonomicznych, gdy funkcją nagrody będzie skrócenie własnego czasu przejazdu. Najpierw kierowcy uczą się przejazdu przez konkretne rondo, potem do ruchu wprowadza się AV, a w kolejnych epizodach kierowcy douczają się na podstawie interakcji z nimi. Szczegółowy opis znajduje się w pliku [`adaptacja-kierowcow-do-av-na-rondzie.md`](adaptacja-kierowcow-do-av-na-rondzie.md).
+
 ### Symulacja zastąpienia skrzyżowań rondami
 
 Budowa modelu ronda mieszczącego się na obszarze istniejącego skrzyżowania i porównanie obu rozwiązań przy różnym natężeniu oraz strukturze ruchu. Szczegółowy opis znajduje się w pliku [`zastepowanie-skrzyzowan-rondami.md`](zastepowanie-skrzyzowan-rondami.md).
