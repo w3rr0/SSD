@@ -53,7 +53,7 @@ Znaleźć ten punkt graniczny za pomocą symulacji z różnym natężeniem ruchu
 
 ### Dyskretno-zdarzeniowa symulacja autonomicznej regulacji rytmu serca z modułem interwencji farmakologicznej (Katecholaminy(stres) vs Acetylocholina(odpoczynek) + Beta-blokery(leki))
 
-Symulacja rytmu i stabilności pracy serca przy zmiennym natężeniu stresu, relaksacji oraz różnym stopniu zablokowania receptorów przez leki. Szczegółowy opis znajduje się w pliku [`serce.md`](adaptacja-kierowcow-do-av-na-rondzie.md).
+Symulacja rytmu i stabilności pracy serca przy zmiennym natężeniu stresu, relaksacji oraz różnym stopniu zablokowania receptorów przez leki. Szczegółowy opis znajduje się w pliku [`serce.md`](serce.md).
 
 Serce będzie reprezentowane jako rozrusznik progowy (licznik), a interakcje cząsteczek z receptorami za pomocą stanów zasobów (np. wolny, zajęty, zablokowany przez lek).
 
