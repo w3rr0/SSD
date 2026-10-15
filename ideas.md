@@ -48,3 +48,15 @@ Budowa modelu ronda mieszczącego się na obszarze istniejącego skrzyżowania i
 
 **Teza**: Ronda zawsze mają większą przepustowość dla małych i średnich skrzyżowań (plus są tańsze w budowie), natomiast skrzyżowania mają sens dopiero przy większym ruchu.
 Znaleźć ten punkt graniczny za pomocą symulacji z różnym natężeniem ruchu drogowego
+
+## Problemy medyczne
+
+### Dyskretno-zdarzeniowa symulacja autonomicznej regulacji rytmu serca z modułem interwencji farmakologicznej (Katecholaminy(stres) vs Acetylocholina(odpoczynek) + Beta-blokery(leki))
+
+Symulacja rytmu i stabilności pracy serca przy zmiennym natężeniu stresu, relaksacji oraz różnym stopniu zablokowania receptorów przez leki. Szczegółowy opis znajduje się w pliku [`serce.md`](adaptacja-kierowcow-do-av-na-rondzie.md).
+
+Serce będzie reprezentowane jako rozrusznik progowy (licznik), a interakcje cząsteczek z receptorami za pomocą stanów zasobów (np. wolny, zajęty, zablokowany przez lek).
+
+**Teza**: Zastosowanie leków blokujących receptory zapobiega niebezpiecznym skokom tętna przy nagłym stresie, nie zaburzając przy tym zdolności serca do naturalnego zwalniania w stanie spoczynku.
+
+
