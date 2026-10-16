@@ -42,6 +42,17 @@ Pojazdy autonimiczne będa reprezentowane za pomcocą deterministycznych warunk�
 
 Badanie, czy kierowcy nauczeni na podstawie rzeczywistego ruchu zaczną wykorzystywać przewidywalne zachowanie deterministycznych pojazdów autonomicznych, gdy funkcją nagrody będzie skrócenie własnego czasu przejazdu. Najpierw kierowcy uczą się przejazdu przez konkretne rondo, potem do ruchu wprowadza się AV, a w kolejnych epizodach kierowcy douczają się na podstawie interakcji z nimi. Szczegółowy opis znajduje się w pliku [`adaptacja-kierowcow-do-av-na-rondzie.md`](adaptacja-kierowcow-do-av-na-rondzie.md).
 
+## Problemy medyczne
+
+### Dyskretno-zdarzeniowa symulacja autonomicznej regulacji rytmu serca z modułem interwencji farmakologicznej (Katecholaminy vs Acetylocholina + Beta-blokery)
+
+Symulacja rytmu i stabilności pracy serca przy zmiennym natężeniu stresu, relaksacji oraz różnym stopniu zablokowania receptorów przez leki. Szczegółowy opis znajduje się w pliku serce.md.
+
+Serce będzie reprezentowane jako rozrusznik progowy (licznik), a interakcje cząsteczek z receptorami za pomocą stanów zasobów (np. wolny, zajęty, zablokowany przez lek).
+
+**Teza**: Zastosowanie leków blokujących receptory (beta-blokerów) zapobiega niebezpiecznym skokom tętna przy nagłym stresie, nie zaburzając przy tym zdolności serca do naturalnego zwalniania w stanie spoczynku.
+
+
 ### Symulacja zastąpienia skrzyżowań rondami
 
 Budowa modelu ronda mieszczącego się na obszarze istniejącego skrzyżowania i porównanie obu rozwiązań przy różnym natężeniu oraz strukturze ruchu. Szczegółowy opis znajduje się w pliku [`zastepowanie-skrzyzowan-rondami.md`](zastepowanie-skrzyzowan-rondami.md).
