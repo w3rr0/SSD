@@ -1,4 +1,4 @@
-#Dyskretno-zdarzeniowa symulacja autonomicznej regulacji rytmu serca
+# Dyskretno-zdarzeniowa symulacja autonomicznej regulacji rytmu serca
 
 ## Streszczenie
 
