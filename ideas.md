@@ -60,3 +60,25 @@ Serce będzie reprezentowane jako rozrusznik progowy (licznik), a interakcje cz�
 **Teza**: Zastosowanie leków blokujących receptory zapobiega niebezpiecznym skokom tętna przy nagłym stresie, nie zaburzając przy tym zdolności serca do naturalnego zwalniania w stanie spoczynku.
 
 
+
+## Sport
+
+### Strategia pit stopów w Formule 1
+
+Symulacja wyścigu F1, w której strateg (agent ML) decyduje, kiedy zjechać do alei i jakie opony założyć, reagując na zużycie opon, safety car i pogodę. Porównanie ze stałą strategią ustaloną przed wyścigiem. Szczegółowy opis znajduje się w pliku [`strategia-pit-stopow-f1.md`](strategia-pit-stopow-f1.md).
+
+**Teza**: Strateg uczący się reagować na bieżącą sytuację osiąga lepszy wynik niż stała strategia, a różnica jest największa w wyścigach z safety carem lub zmienną pogodą.
+
+### Zmiany zawodników w piłce nożnej
+
+Symulacja meczu piłkarskiego jako ciągu zdarzeń (posiadanie, strzał, faul, kartka, zmiana), w której trener-agent wybiera moment i rodzaj zmiany na podstawie zmęczenia, kartek i wyniku. Możliwe rozszerzenie o rotację składu w całym sezonie. Szczegółowy opis znajduje się w pliku [`zmiany-zawodnikow-w-pilce-noznej.md`](zmiany-zawodnikow-w-pilce-noznej.md).
+
+**Teza**: Zmiany ustalane dynamicznie dają lepszy bilans bramek niż stały harmonogram zmian.
+
+## Muzyka i social media
+
+### Popularity bias w rekomendacjach muzyki
+
+Symulacja słuchaczy (agentów) i artystów na platformie streamingowej z pętlą sprzężenia zwrotnego między rekomendacjami a odsłuchaniami. Porównanie rekomendera popularnościowego, kolaboratywnego i z kontrolowaną eksploracją pod względem czasu słuchania oraz szans nowych artystów. Szczegółowy opis znajduje się w pliku [`popularity-bias-rekomendacji-muzyki.md`](popularity-bias-rekomendacji-muzyki.md).
+
+**Teza**: Umiarkowana eksploracja w rekomendacjach znacząco zwiększa odsłuchania nowych artystów, obniżając czas słuchania tylko nieznacznie.
