@@ -10,5 +10,6 @@ classifiers = [
 ]
 
 dependencies = [
-    "mesa>=3.5.2",
+    "mesa[viz]>=3.5.2",
+    "networkx>=3.7",
 ]
