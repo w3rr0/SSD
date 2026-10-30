@@ -1,10 +1,25 @@
-import sys
 import os
+import sys
+from pathlib import Path
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+APP = Path(__file__).resolve().parents[1] / "src" / "visualization" / "server.py"
+PORT = "8521"
 
-from src.visualization.server import server
+
+def main():
+    os.execv(
+        sys.executable,
+        [
+            sys.executable,
+            "-m",
+            "solara",
+            "run",
+            str(APP),
+            "--port",
+            PORT,
+        ],
+    )
+
 
 if __name__ == "__main__":
-    print(f"Launching server on {server.port}")
-    server.launch()
+    main()
