@@ -2,12 +2,12 @@ from mesa import Agent
 
 
 class Robot(Agent):
-    def __init__(self, id, model):
-        super().__init__(id, model)
+    def __init__(self, model):
+        super().__init__(model)
         self.battery = 100
 
     def step(self):
-        possible_steps = self.model.grid.get_neighbourood(
+        possible_steps = self.model.grid.get_neighborhood(
             self.pos,
             moore=False,
             include_center=False,
