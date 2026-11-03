@@ -12,4 +12,5 @@ classifiers = [
 dependencies = [
     "mesa[viz]>=3.5.2",
     "networkx>=3.7",
+    "solara>=1.65.2",
 ]
