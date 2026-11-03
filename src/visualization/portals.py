@@ -1,13 +1,26 @@
 from mesa.visualization.components import AgentPortrayalStyle
 
 from src.agents.robot import Robot
+from src.agents.warehouse_objects import PickingStation, Rack
 
 
 def agent_portrayal(agent):
     if isinstance(agent, Robot):
         return AgentPortrayalStyle(
-            color="blue",
+            color="green" if agent.carrying_rack_id else "blue",
             marker="o",
             size=50,
+        )
+    if isinstance(agent, Rack):
+        return AgentPortrayalStyle(
+            color="orange" if not agent.delivered else "gray",
+            marker="s",
+            size=70,
+        )
+    if isinstance(agent, PickingStation):
+        return AgentPortrayalStyle(
+            color="red",
+            marker="X",
+            size=80,
         )
     return AgentPortrayalStyle()
