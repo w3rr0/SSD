@@ -59,6 +59,6 @@ class WarehouseModelTests(unittest.TestCase):
 
         self.assertIsNotNone(page)
         self.assertIsNotNone(renderer)
-        self.assertEqual(renderer.canvas.get_figure().get_size_inches().tolist(), [4.0, 4.0])
+        self.assertEqual(renderer.canvas.get_figure().get_size_inches().tolist(), [9.0, 9.0])
         self.assertEqual(renderer.canvas.get_xlim(), (-0.5, 19.5))
         self.assertEqual(renderer.canvas.get_ylim(), (-0.5, 19.5))
