@@ -1,0 +1,20 @@
+Temat: Symulacja zautomatyzowanego magazynu, w którym roboty przywożą regały z produktami do stanowisk kompletacji, na wzór robotów Kiva z magazynów Amazona. Cel: sprawdzić, jak rozmieszczenie produktów i sposób sterowania robotami wpływają na czas realizacji zamówień.
+
+Modele:
+- Model agentowy w Mesie: magazyn to siatka z regałami, alejkami, stanowiskami i ładowarkami, a każdy robot jest osobnym agentem. Trasy liczymy algorytmem A*, a roboty rezerwują pola, przez które przejadą w najbliższych krokach. Roboty jadące w tym samym kierunku albo do tego samego zamówienia koordynujemy jako grupę: mogą jednocześnie zajmować ten sam odcinek alejki i dojeżdżają do stanowiska jeden po drugim.
+- Przebieg zamówień to symulacja zdarzeń dyskretnych: czas przeskakuje od zdarzenia do zdarzenia (nowe zamówienie, dojazd do stanowiska, koniec kompletacji, ładowanie, awaria). Korzystamy z wbudowanego planowania zdarzeń w Mesie.
+- Rozmieszczenie produktów: losowe, według częstości zamówień (klasyfikacja ABC, najpopularniejsze najbliżej stanowisk) oraz odstawianie regału po każdym kursie na najbliższe wolne miejsce przy stanowisku.
+- Przydział zadań: najbliższy wolny robot albo robot dobrany z uwzględnieniem terminu wysyłki i poziomu baterii.
+
+Kalibracja i walidacja:
+- Zamówienia ze zbioru Olist z Kaggle (ok. 100 tys. zamówień z brazylijskiego sklepu internetowego z lat 2016–2018). Bierzemy z niego liczbę produktów w zamówieniu, rozkład zamówień w czasie i popularność produktów. Rozkłady liczymy na danych z 2017 roku, a na danych z 2018 sprawdzamy, czy wygenerowane zamówienia zgadzają się z prawdziwymi.
+- Parametry robotów (prędkość, bateria, ładowanie) z dokumentacji producentów i publikacji o systemie Kiva. Sprawdzimy też, jak mocno wyniki zależą od ich zmiany.
+- Poprawność modelu sprawdzamy na prostym przypadku: średni czas czekania w kolejce do jednego stanowiska porównujemy ze wzorem z teorii kolejek.
+
+Technologie: Python, Mesa, pandas/polars
+
+Scenariusze: różna liczba robotów dla każdego rozmieszczenia, zwykły dzień i szczyt zamówień, liczba ładowarek i stanowisk, wpływ awarii na pilne zamówienia.
+
+Mierzymy czas realizacji zamówień (średni i najdłuższy), liczbę zamówień na godzinę, czas stania robotów w korkach i kolejkach oraz wykorzystanie stanowisk i ładowarek.
+
+Opcjonalnie: agent uczony na symulacji przydzielający zadania robotom, porównany z prostymi regułami.
