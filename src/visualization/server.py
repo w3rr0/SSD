@@ -45,12 +45,13 @@ configure_renderer(renderer, model)
 @solara.component
 def WarehousePage():
     reactive_model = solara.use_reactive(model)
+    reactive_renderer = solara.use_reactive(renderer)
     model_parameters = solara.use_reactive({})
     play_interval = solara.use_reactive(100)
     render_interval = solara.use_reactive(1)
     use_threads = solara.use_reactive(False)
 
-    configure_renderer(renderer, reactive_model.value)
+    configure_renderer(reactive_renderer.value, reactive_model.value)
 
     solara.Style(
         """
@@ -83,6 +84,7 @@ def WarehousePage():
         with solara.Card("Controls"):
             ModelController(
                 reactive_model,
+                renderer=reactive_renderer,
                 model_parameters=model_parameters,
                 play_interval=play_interval,
                 render_interval=render_interval,
@@ -98,7 +100,7 @@ def WarehousePage():
             ShowSteps(reactive_model.value)
 
     with solara.Column(classes=["warehouse-visualization"], gap="0"):
-        SpaceRendererComponent(reactive_model.value, renderer)
+        SpaceRendererComponent(reactive_model.value, reactive_renderer.value)
 
 
 page = WarehousePage
