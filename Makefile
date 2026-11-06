@@ -6,3 +6,6 @@ olist_report:
 
 olist_validation:
 	uv run runners/olist_validation.py
+
+olist_plots:
+	uv run runners/olist_plots.py

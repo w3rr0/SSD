@@ -9,3 +9,6 @@ graphify-out/
 
 # Data
 data/raw/
+
+# Generated plots and results
+output/
