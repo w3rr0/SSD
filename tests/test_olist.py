@@ -105,6 +105,15 @@ class OlistTests(unittest.TestCase):
         self.assertEqual(profile.loc[6, 23], 1.0)
         self.assertEqual(profile.to_numpy().sum(), 4.0)
 
+    def test_arrival_profile_skips_exceptional_days(self):
+        # skipping the only Monday removes its orders and the Monday itself
+        profile = olist.arrival_profile(
+            self.y2017, skip_days=frozenset({pd.Timestamp("2017-01-02")})
+        )
+        self.assertEqual(profile.loc[0].sum(), 0.0)
+        self.assertEqual(profile.loc[2, 18], 1.0)
+        self.assertEqual(profile.to_numpy().sum(), 2.0)
+
     def test_product_popularity_by_orders_and_units(self):
         popularity = olist.product_popularity(self.y2017)
         # A: in o1, o2, o5 (3 orders, 4 units); C: o3, o5 (2 orders, 4 units);

@@ -43,7 +43,8 @@ def year_report(table: pd.DataFrame, year: int) -> olist.OlistStats:
     section(f"{year}: units per order line (share of lines)")
     print(stats.quantity_per_line.head(TOP).round(4).to_string())
 
-    section(f"{year}: mean orders per hour (rows: 0 = Monday, columns: hour)")
+    section(f"{year}: mean orders per hour on a normal day (rows: 0 = Monday, columns: hour)")
+    print("exceptional days left out:", ", ".join(str(d.date()) for d in sorted(olist.EXCEPTIONAL_DAYS)))
     print(stats.arrival_profile.round(1).to_string())
 
     section(f"{year}: busiest days")

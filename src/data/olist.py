@@ -23,6 +23,14 @@ ITEMS_FILE = "olist_order_items_dataset.csv"
 # Orders that never reached fulfilment; they often have no items at all.
 SKIPPED_STATUSES = frozenset({"canceled", "unavailable"})
 
+# Days with exceptional traffic, left out of the normal-day arrival profile.
+# Peaks are simulated with the generator's ``volume_factor`` instead.
+EXCEPTIONAL_DAYS = frozenset(
+    {
+        pd.Timestamp("2017-11-24"),  # Black Friday: 1166 orders, ~9.5x a mean day
+    }
+)
+
 
 def load_orders(raw_dir: Path = DEFAULT_RAW_DIR) -> pd.DataFrame:
     """Load Olist orders as one row per (order, product) line.
@@ -104,21 +112,26 @@ def daily_counts(table: pd.DataFrame) -> pd.Series:
     return counts.reindex(_calendar_days(table), fill_value=0).rename("orders")
 
 
-def arrival_profile(table: pd.DataFrame) -> pd.DataFrame:
-    """Mean orders per hour, rows = weekday (0 = Monday), columns = hour 0-23.
+def arrival_profile(
+    table: pd.DataFrame, skip_days: frozenset[pd.Timestamp] = EXCEPTIONAL_DAYS
+) -> pd.DataFrame:
+    """Mean orders per hour on a normal day, rows = weekday (0 = Monday), columns = hour 0-23.
 
     Each cell is the number of orders placed in that weekday-hour divided by
-    how many such weekdays the period has (empty days included).
+    how many such weekdays the period has (empty days included). Days in
+    ``skip_days`` are left out of both counts.
     """
-    orders = _one_row_per_order(table)
+    orders = _one_row_per_order(table[~table["date"].isin(skip_days)])
     counts = (
         orders.groupby(["weekday", "hour"])
         .size()
         .unstack(fill_value=0)
         .reindex(index=range(7), columns=range(24), fill_value=0)
     )
+    calendar = _calendar_days(table)
+    calendar = calendar[~calendar.isin(skip_days)]
     days_per_weekday = (
-        pd.Series(_calendar_days(table).weekday)
+        pd.Series(calendar.weekday)
         .value_counts()
         .reindex(range(7), fill_value=0)
     )
