@@ -159,3 +159,16 @@ class WarehouseModelTests(unittest.TestCase):
         self.assertEqual(renderer.canvas.get_figure().get_size_inches().tolist(), [9.0, 9.0])
         self.assertEqual(renderer.canvas.get_xlim(), (-0.5, 19.5))
         self.assertEqual(renderer.canvas.get_ylim(), (-0.5, 19.5))
+        legend = renderer.canvas.get_legend()
+        self.assertIsNotNone(legend)
+        self.assertEqual(
+            [text.get_text() for text in legend.get_texts()],
+            [
+                "Robot",
+                "Robot with a rack",
+                "Rack",
+                "Transported rack",
+                "Completing station",
+                "Charger",
+            ],
+        )

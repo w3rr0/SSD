@@ -8,7 +8,7 @@ from mesa.visualization.solara_viz import (
 )
 
 from src.core.model import Warehouse
-from src.visualization.portals import agent_portrayal
+from src.visualization.portals import agent_portrayal, legend_handles
 
 model_params = {
     "width": 20,
@@ -38,6 +38,14 @@ def configure_renderer(renderer, model):
     axes.set_aspect("equal", adjustable="box")
     axes.set_xlim(-0.5, model.grid.width - 0.5)
     axes.set_ylim(-0.5, model.grid.height - 0.5)
+    if axes.get_legend() is not None:
+        axes.get_legend().remove()
+    axes.legend(
+        handles=legend_handles(),
+        loc="upper left",
+        title="Legend",
+        framealpha=0.9,
+    )
 
 
 configure_renderer(renderer, model)

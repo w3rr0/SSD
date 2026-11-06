@@ -1,7 +1,67 @@
+from matplotlib.lines import Line2D
 from mesa.visualization.components import AgentPortrayalStyle
 
 from src.agents.robot import Robot
 from src.agents.warehouse_objects import Charger, PickingStation, Rack
+
+
+def legend_handles() -> tuple[Line2D, ...]:
+    return (
+        Line2D(
+            [],
+            [],
+            color="blue",
+            marker="o",
+            linestyle="None",
+            markersize=7,
+            label="Robot",
+        ),
+        Line2D(
+            [],
+            [],
+            color="green",
+            marker="o",
+            linestyle="None",
+            markersize=7,
+            label="Robot with a rack",
+        ),
+        Line2D(
+            [],
+            [],
+            color="orange",
+            marker="s",
+            linestyle="None",
+            markersize=7,
+            label="Rack",
+        ),
+        Line2D(
+            [],
+            [],
+            color="gray",
+            marker="s",
+            linestyle="None",
+            markersize=7,
+            label="Transported rack",
+        ),
+        Line2D(
+            [],
+            [],
+            color="red",
+            marker="X",
+            linestyle="None",
+            markersize=8,
+            label="Completing station",
+        ),
+        Line2D(
+            [],
+            [],
+            color="purple",
+            marker="P",
+            linestyle="None",
+            markersize=8,
+            label="Charger",
+        ),
+    )
 
 
 def agent_portrayal(agent):
