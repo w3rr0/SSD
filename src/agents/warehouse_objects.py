@@ -33,6 +33,14 @@ class Rack(Agent):
         return self.carried_by is None and self.reserved_by_task is None
 
 
+class Charger(Agent):
+    """A charging spot. Charging logic arrives with the battery model (P5)."""
+
+    def __init__(self, model, charger_id: str):
+        super().__init__(model)
+        self.charger_id = charger_id
+
+
 class PickingStation(Agent):
     """A picker serving robots one at a time in FIFO order.
 

@@ -21,7 +21,7 @@ def astar_path(
 
     ``obstacles`` are cells occupied right now (e.g. racks standing in the
     warehouse). When omitted, the static rack and station positions from the
-    layout are used. The start and goal cells are never treated as obstacles.
+    layout (racks, stations, chargers) are used. The start and goal cells are never treated as obstacles.
     """
     layout.validate_position(start)
     layout.validate_position(goal)
@@ -31,7 +31,11 @@ def astar_path(
         return (start,)
 
     if obstacles is None:
-        obstacles = set(layout.racks.values()) | set(layout.stations.values())
+        obstacles = (
+            set(layout.racks.values())
+            | set(layout.stations.values())
+            | set(layout.chargers.values())
+        )
     occupied_cells = set(obstacles)
     occupied_cells.discard(start)
     occupied_cells.discard(goal)

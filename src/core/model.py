@@ -7,11 +7,12 @@ from mesa.space import MultiGrid
 from mesa.time import Priority
 
 from src.agents.robot import Robot, RobotConfig, RobotState
-from src.agents.warehouse_objects import PickingStation, Rack
+from src.agents.warehouse_objects import Charger, PickingStation, Rack
 from src.core.config import SimulationConfig
 from src.environment.layout import Coordinate, WarehouseLayout
 from src.metrics.baseline import SimulationMetrics
 from src.orders.models import Order, OrderLine, OrderStatus, PickTask, TaskStatus
+from src.orders.generator import random_orders
 from src.pipeline.pathfinding import astar_path
 
 
@@ -36,6 +37,7 @@ class Warehouse(Model):
         width: int = 20,
         height: int = 20,
         num_robots: int = 1,
+        num_orders: int = 1,
         layout: WarehouseLayout | None = None,
         robot_configs: Sequence[RobotConfig] | None = None,
         orders: Iterable[Order] | None = None,
@@ -88,6 +90,11 @@ class Warehouse(Model):
             self.grid.place_agent(rack, self.layout.racks[rack_id])
         for station_id, station in self.stations.items():
             self.grid.place_agent(station, self.layout.stations[station_id])
+        self.chargers = {
+            charger_id: Charger(self, charger_id) for charger_id in self.layout.chargers
+        }
+        for charger_id, charger in self.chargers.items():
+            self.grid.place_agent(charger, self.layout.chargers[charger_id])
 
         self.orders: list[Order] = []
         self.orders_by_id: dict[str, Order] = {}
@@ -95,7 +102,9 @@ class Warehouse(Model):
         self._unreleased: list[Order] = []
         self.tasks: list[PickTask] = []
         self.tasks_by_id: dict[str, PickTask] = {}
-        for order in self._default_orders() if orders is None else orders:
+        if orders is None:
+            orders = self._default_orders(num_orders)
+        for order in orders:
             self.add_order(order)
 
     def add_order(self, order: Order) -> None:
@@ -195,13 +204,20 @@ class Warehouse(Model):
             for rack_id in self.layout.racks
         }
 
-    def _default_orders(self) -> list[Order]:
-        if not self.racks or not self.stations:
+    def _default_orders(self, num_orders: int) -> list[Order]:
+        """One order for the first SKU, or a random stream for the demo."""
+        if not self.stations or not self.racks_by_sku or num_orders <= 0:
             return []
-        rack = next(iter(self.racks.values()))
-        if not rack.skus:
-            return []
-        return [Order("order-1", (OrderLine(min(rack.skus)),))]
+        if num_orders == 1:
+            first_rack = next(iter(self.racks.values()))
+            sku = min(first_rack.skus) if first_rack.skus else min(self.racks_by_sku)
+            return [Order("order-1", (OrderLine(sku),))]
+        return random_orders(
+            self.rng,
+            skus=sorted(self.racks_by_sku),
+            count=num_orders,
+            mean_interarrival_s=30.0,
+        )
 
     def _validate_order(self, order: Order) -> None:
         if order.station_id is not None and order.station_id not in self.stations:
@@ -267,11 +283,15 @@ class Warehouse(Model):
                 available.remove(robot)
 
     def _obstacles(self) -> set[Coordinate]:
-        """Cells blocked right now: standing (not carried) racks and stations."""
+        """Cells blocked right now: standing racks, stations and chargers."""
         standing_racks = {
             rack.pos for rack in self.racks.values() if rack.carried_by is None
         }
-        return standing_racks | set(self.layout.stations.values())
+        return (
+            standing_racks
+            | set(self.layout.stations.values())
+            | set(self.layout.chargers.values())
+        )
 
     def _route(self, start: Coordinate, goal: Coordinate) -> tuple[Coordinate, ...]:
         return astar_path(self.layout, start, goal, obstacles=self._obstacles())
