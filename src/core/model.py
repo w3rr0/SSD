@@ -6,7 +6,7 @@ from mesa import Model
 from mesa.space import MultiGrid
 from mesa.time import Priority
 
-from src.agents.robot import Robot, RobotConfig
+from src.agents.robot import Robot, RobotConfig, RobotState
 from src.agents.warehouse_objects import PickingStation, Rack
 from src.core.config import SimulationConfig
 from src.environment.layout import Coordinate, WarehouseLayout
@@ -192,25 +192,33 @@ class Warehouse(Model):
         return astar_path(self.layout, start, goal, obstacles=self._obstacles())
 
     def _advance_order_state(self, robot: Robot) -> None:
-        if robot.assigned_order_id is None:
+        """React to a robot that reached the end of its route."""
+        if not robot.route_finished:
             return
+        if robot.state is RobotState.TO_RACK:
+            self._pick_up_rack(robot)
+        elif robot.state is RobotState.TO_STATION:
+            self._arrive_at_station(robot)
+
+    def _pick_up_rack(self, robot: Robot) -> None:
         order = self.orders_by_id[robot.assigned_order_id]
         rack = self.racks[order.rack_id]
+        if robot.pos != rack.pos:
+            raise RuntimeError(f"Robot {robot.robot_id} is not under {rack.rack_id}")
+        robot.carrying_rack_id = rack.rack_id
+        rack.carried_by = robot.robot_id
+        station_position = self.layout.stations[order.station_id]
+        robot.set_route(self._route(robot.pos, station_position))
+        robot.transition(RobotState.TO_STATION)
 
-        if robot.carrying_rack_id is None and robot.pos == rack.pos:
-            robot.carrying_rack_id = rack.rack_id
-            rack.carried_by = robot.robot_id
-            station_position = self.layout.stations[order.station_id]
-            robot.set_route(self._route(robot.pos, station_position))
-            return
-
-        if robot.carrying_rack_id == rack.rack_id:
-            station_position = self.layout.stations[order.station_id]
-            if robot.pos == station_position:
-                rack.carried_by = None
-                rack.delivered = True
-                order.complete(self.time)
-                robot.clear_assignment()
+    def _arrive_at_station(self, robot: Robot) -> None:
+        order = self.orders_by_id[robot.assigned_order_id]
+        rack = self.racks[order.rack_id]
+        rack.carried_by = None
+        rack.delivered = True
+        order.complete(self.time)
+        robot.clear_assignment()
+        robot.transition(RobotState.IDLE)
 
     def _sync_carried_rack(self, robot: Robot) -> None:
         if robot.carrying_rack_id is None:
