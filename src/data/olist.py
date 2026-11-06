@@ -4,7 +4,8 @@ The simulation is calibrated on three things taken from Olist:
 
 * how many different products an order contains (and how many units of each),
 * when orders arrive (per weekday and hour, plus counts per calendar day),
-* how popular each product is.
+* how popular each product is,
+* how much time an order has until its shipping deadline.
 
 Statistics are computed on one year (2017 for calibration, 2018 for
 validation). Download the raw files with ``uv run data/download_olist.py``.
@@ -146,6 +147,16 @@ def product_popularity(table: pd.DataFrame) -> pd.DataFrame:
     )[["orders", "order_share", "units", "unit_share"]]
 
 
+def lead_time(table: pd.DataFrame) -> pd.Series:
+    """Seconds from purchase to the shipping deadline, one value per order.
+
+    The generator draws due times from these values (empirical distribution).
+    """
+    orders = _one_row_per_order(table)
+    seconds = (orders["shipping_limit"] - orders["purchase_time"]).dt.total_seconds()
+    return seconds.reset_index(drop=True).rename("lead_time_s")
+
+
 @dataclass(frozen=True)
 class OlistStats:
     """All distributions the order generator needs, for one period."""
@@ -155,6 +166,7 @@ class OlistStats:
     arrival_profile: pd.DataFrame
     daily_counts: pd.Series
     product_popularity: pd.DataFrame
+    lead_time: pd.Series
 
 
 def compute_stats(table: pd.DataFrame) -> OlistStats:
@@ -164,4 +176,5 @@ def compute_stats(table: pd.DataFrame) -> OlistStats:
         arrival_profile=arrival_profile(table),
         daily_counts=daily_counts(table),
         product_popularity=product_popularity(table),
+        lead_time=lead_time(table),
     )

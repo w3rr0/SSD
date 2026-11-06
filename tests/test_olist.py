@@ -115,10 +115,23 @@ class OlistTests(unittest.TestCase):
         self.assertEqual(popularity.loc["C", "units"], 4)
         self.assertEqual(popularity.loc["C", "unit_share"], 4 / 9)
 
+    def test_lead_time_per_order(self):
+        # o1 2nd 10:15 -> 5th 10:00, o2 2nd 10:45 -> 6th 11:00,
+        # o3 4th 18:00 -> 9th 18:00, o5 8th 23:30 -> 12th 00:00
+        day = 86400
+        expected = [
+            3 * day - 15 * 60,
+            4 * day + 15 * 60,
+            5 * day,
+            3 * day + 30 * 60,
+        ]
+        self.assertEqual(olist.lead_time(self.y2017).tolist(), expected)
+
     def test_compute_stats_bundles_everything(self):
         stats = olist.compute_stats(self.y2017)
         self.assertEqual(stats.items_per_order.to_dict(), {1: 0.5, 2: 0.5})
         self.assertEqual(stats.product_popularity.index[0], "A")
+        self.assertEqual(len(stats.lead_time), 4)
 
 
 if __name__ == "__main__":
