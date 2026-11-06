@@ -3,3 +3,6 @@ run_visual:
 
 olist_report:
 	uv run runners/olist_report.py
+
+olist_validation:
+	uv run runners/olist_validation.py
