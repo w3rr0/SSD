@@ -6,3 +6,6 @@ graphify-out/
 
 # IDE
 .idea/
+
+# Data
+data/raw/
