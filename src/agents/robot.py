@@ -66,6 +66,12 @@ class Robot(Agent):
         self.assigned_task_id: str | None = None
         self.carrying_rack_id: str | None = None
         self._route: Deque[Coordinate] = deque()
+        self.blocked = False
+        self.blocked_cell: Coordinate | None = None
+        self.blocked_by: str | None = None
+        self.yielding = False
+        self.yield_parked_at: float | None = None
+        self.yield_wait_since: float | None = None
         self.state = RobotState.IDLE
         self._state_since = float(model.time)
         self._time_in_state: dict[RobotState, float] = {s: 0.0 for s in RobotState}
@@ -107,6 +113,9 @@ class Robot(Agent):
         if not self.is_available:
             raise ValueError(f"Robot {self.robot_id} is already assigned")
         self.assigned_task_id = task_id
+        self.yielding = False
+        self.yield_parked_at = None
+        self.yield_wait_since = None
         self.set_route(route)
         self.transition(RobotState.TO_RACK)
 
@@ -114,11 +123,16 @@ class Robot(Agent):
         if route and route[0] == self.pos:
             route = route[1:]
         self._route = deque(route)
+        self.model.reset_reservation(self)
 
     def clear_assignment(self) -> None:
         self.assigned_task_id = None
         self.carrying_rack_id = None
+        self.yielding = False
+        self.yield_parked_at = None
+        self.yield_wait_since = None
         self._route.clear()
+        self.model.reset_reservation(self)
 
     def step(self) -> None:
         """Drive along the route for one tick.
@@ -126,15 +140,55 @@ class Robot(Agent):
         Only robots in a moving state drive. Speed is converted to cells with
         ``SimulationConfig``; the fractional part of a cell is carried over to
         the next tick.
+
+        A robot may only enter a cell reserved for it. When the next cell is
+        held by another robot, the robot stops for this tick and records the
+        blocker, so the model can report a deadlock instead of hanging.
         """
-        if self.state not in MOVING_STATES or not self._route:
+        self.blocked = False
+        self.blocked_cell = None
+        self.blocked_by = None
+        driving = self.state in MOVING_STATES or (
+            self.state is RobotState.IDLE and self.yielding
+        )
+        if not driving or not self._route:
             self._move_progress = 0.0
             return
         config = self.model.config
         self._move_progress += config.cells_per_tick
         while self._route and self._move_progress >= 1.0:
-            next_position = self._route.popleft()
+            next_position = self._route[0]
+            self.model.extend_reservation(self)
+            if not self.model.reservations.is_reserved_by(
+                self.robot_id, next_position
+            ):
+                conflict = self.model.reservations.conflict(
+                    self.robot_id, next_position
+                )
+                if (
+                    conflict is not None
+                    and self.model.reservations.resolve(
+                        self.robot_id, conflict.holder_id
+                    )
+                    == self.robot_id
+                ):
+                    self.model.extend_reservation(self, preempt=True)
+                if not self.model.reservations.is_reserved_by(
+                    self.robot_id, next_position
+                ):
+                    self.blocked = True
+                    self.blocked_cell = next_position
+                    self.blocked_by = self.model.reservations.owner(
+                        next_position
+                    )
+                    self._move_progress = 0.0
+                    return
+            old_position = self.pos
+            self._route.popleft()
             self.model.grid.move_agent(self, next_position)
+            self.model.reservations.release_passed(
+                self.robot_id, old_position
+            )
             self._move_progress -= 1.0
             self.distance_travelled_m += config.cell_size_m
             self.battery = max(

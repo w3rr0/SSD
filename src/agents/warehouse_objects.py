@@ -61,12 +61,15 @@ class PickingStation(Agent):
     def queue_length(self) -> int:
         return len(self.queue)
 
-    def enqueue(self, robot: Robot) -> None:
+    def enqueue(self, robot: Robot, waiting_since: float | None = None) -> None:
         from src.agents.robot import RobotState
 
         robot.transition(RobotState.QUEUED)
         self.queue.append(robot)
-        self._queued_at[robot.robot_id] = float(self.model.time)
+        queued_at = (
+            float(self.model.time) if waiting_since is None else waiting_since
+        )
+        self._queued_at[robot.robot_id] = queued_at
         self._start_next()
 
     def _start_next(self) -> None:

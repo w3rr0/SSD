@@ -1,17 +1,25 @@
+from collections import deque
 from collections.abc import Iterable, Mapping, Sequence
 
 from mesa import Model
 from mesa.space import MultiGrid
 from mesa.time import Priority
 
-from src.agents.robot import Robot, RobotConfig, RobotState
+from src.agents.robot import MOVING_STATES, Robot, RobotConfig, RobotState
 from src.agents.warehouse_objects import Charger, PickingStation, Rack
 from src.core.config import SimulationConfig
 from src.environment.layout import Coordinate, WarehouseLayout
 from src.metrics.baseline import SimulationMetrics
 from src.orders.models import Order, OrderLine, OrderStatus, PickTask, TaskStatus
 from src.orders.generator import random_orders
-from src.pipeline.pathfinding import astar_path
+from src.pipeline.pathfinding import NoPathError, astar_path
+from src.pipeline.reservations import (
+    ConflictResolver,
+    DeadlockError,
+    ReservationTable,
+    lowest_id_wins,
+    natural_key,
+)
 
 
 class Warehouse(Model):
@@ -42,6 +50,7 @@ class Warehouse(Model):
         rack_skus: Mapping[str, Iterable[str]] | None = None,
         config: SimulationConfig | None = None,
         rng: int | None = None,
+        resolve_conflict: ConflictResolver = lowest_id_wins,
     ):
         super().__init__(rng=rng)
         self.config = config or SimulationConfig()
@@ -51,6 +60,10 @@ class Warehouse(Model):
             num_robots=num_robots,
         )
         self.grid = MultiGrid(self.layout.width, self.layout.height, torus=False)
+        self.reservations = ReservationTable(
+            lookahead=self.config.reservation_lookahead,
+            resolve_conflict=resolve_conflict,
+        )
 
         configs = tuple(
             self._default_robot_configs(num_robots)
@@ -61,6 +74,7 @@ class Warehouse(Model):
         self.robot_by_id = {robot.robot_id: robot for robot in self.robots}
         for robot, config in zip(self.robots, configs, strict=True):
             self.grid.place_agent(robot, config.start)
+            self.reservations.try_extend(robot.robot_id, (robot.pos,))
 
         if rack_skus is None:
             rack_skus = self._default_rack_skus()
@@ -84,6 +98,10 @@ class Warehouse(Model):
             station_id: PickingStation(self, station_id)
             for station_id in self.layout.stations
         }
+        self.station_by_position = {
+            position: station_id
+            for station_id, position in self.layout.stations.items()
+        }
         for rack_id, rack in self.racks.items():
             self.grid.place_agent(rack, self.layout.racks[rack_id])
         for station_id, station in self.stations.items():
@@ -100,6 +118,13 @@ class Warehouse(Model):
         self._unreleased: list[Order] = []
         self.tasks: list[PickTask] = []
         self.tasks_by_id: dict[str, PickTask] = {}
+        self._station_wait_started: dict[str, float] = {}
+        self._deadlock_since: float | None = None
+        self._deadlock_cycle: frozenset[str] = frozenset()
+        self._yield_cycle: frozenset[str] = frozenset()
+        self._yield_last_attempt = float("-inf")
+        self._progress_since: dict[str, float] = {}
+        self._progress_signature: dict[str, tuple[object, ...]] = {}
         if orders is None:
             orders = self._default_orders(num_orders)
         for order in orders:
@@ -247,8 +272,340 @@ class Warehouse(Model):
             robot.step()
             self._sync_carried_rack(robot)
             self._advance_order_state(robot)
+            self._track_progress(robot)
 
+        self._record_station_waits()
+        self._clear_idle_blockers()
+        self._check_deadlock()
         self.running = not self.all_orders_completed
+
+    def reset_reservation(self, robot: Robot) -> None:
+        """Replace the robot's reservation window with its current route."""
+        self.reservations.release_all(robot.robot_id)
+        self.reservations.try_extend(
+            robot.robot_id, (robot.pos, *robot.route)
+        )
+
+    def extend_reservation(self, robot: Robot, *, preempt: bool = False) -> None:
+        """Top up the robot's reservation window along its remaining route."""
+        self.reservations.try_extend(
+            robot.robot_id,
+            (robot.pos, *robot.route),
+            preempt=preempt,
+        )
+
+    def _task_of(self, robot: Robot) -> PickTask | None:
+        if robot.assigned_task_id is None:
+            return None
+        return self.tasks_by_id.get(robot.assigned_task_id)
+
+    def _record_station_waits(self) -> None:
+        """Start the station queue clock when a robot first waits for it.
+
+        A robot may wait in front of the station cell, or behind another robot
+        already waiting for the same station. Both cases count as queue time.
+        """
+        for robot in self.robots:
+            if robot.yielding:
+                continue
+            if robot.robot_id in self._station_wait_started:
+                continue
+            if not robot.blocked or robot.blocked_cell is None:
+                continue
+            station_id = self.station_by_position.get(robot.blocked_cell)
+            if station_id is None:
+                continue
+            task = self._task_of(robot)
+            if task is None or task.station_id != station_id:
+                continue
+            self._station_wait_started[robot.robot_id] = float(self.time)
+
+        changed = True
+        while changed:
+            changed = False
+            for robot in self.robots:
+                if robot.yielding:
+                    continue
+                if robot.robot_id in self._station_wait_started:
+                    continue
+                if not robot.blocked or robot.blocked_by is None:
+                    continue
+                holder = self.robot_by_id.get(robot.blocked_by)
+                if holder is None:
+                    continue
+                if holder.robot_id not in self._station_wait_started:
+                    continue
+                robot_task = self._task_of(robot)
+                holder_task = self._task_of(holder)
+                if robot_task is None or holder_task is None:
+                    continue
+                if robot_task.station_id != holder_task.station_id:
+                    continue
+                self._station_wait_started[robot.robot_id] = float(self.time)
+                changed = True
+
+    def _clear_idle_blockers(self) -> None:
+        """Ask an idle robot to step aside when it blocks a working one.
+
+        Robots are parked on their start cells until the first order reaches
+        the station. Without this, a parked robot in a one-cell aisle makes a
+        working robot wait for an order that may be minutes away. The idle
+        robot is sent to the nearest cell off every working robot's route and
+        simply stays there when the detour ends.
+        """
+        for robot in self.robots:
+            if not robot.blocked or robot.blocked_by is None:
+                continue
+            blocker = self.robot_by_id.get(robot.blocked_by)
+            if blocker is None or blocker.assigned_task_id is not None:
+                continue
+            if blocker.state is not RobotState.IDLE or blocker.route:
+                continue
+            route = self._yield_path(blocker)
+            if route is None:
+                continue
+            blocker.set_route(route)
+            blocker.yielding = True
+            blocker.yield_parked_at = None
+            blocker.yield_wait_since = None
+
+    def _check_deadlock(self) -> None:
+        """Break a waiting cycle by yielding, or raise after the timeout.
+
+        Opposite-direction traffic in a one-cell aisle can form a cycle. The
+        lowest-priority robot of the cycle is moved to the nearest free cell
+        off the other robot's route; it resumes its task afterwards. If no
+        such cell exists, the cycle is reported instead of hanging forever.
+        """
+        waits = {
+            robot.robot_id: robot.blocked_by
+            for robot in self.robots
+            if robot.blocked and robot.blocked_by is not None
+        }
+        cycle = self._find_deadlock_cycle(waits)
+        if cycle is None:
+            self._deadlock_since = None
+            self._deadlock_cycle = frozenset()
+            self._yield_cycle = frozenset()
+            self._yield_last_attempt = float("-inf")
+            return
+        if cycle != self._deadlock_cycle:
+            self._deadlock_cycle = cycle
+            self._deadlock_since = float(self.time)
+        retry_s = max(2.0, self.config.deadlock_timeout_s / 10)
+        if (
+            cycle != self._yield_cycle
+            or float(self.time) - self._yield_last_attempt >= retry_s
+        ):
+            if self._start_yield(cycle):
+                self._yield_cycle = cycle
+            self._yield_last_attempt = float(self.time)
+        if self._deadlock_since is None:
+            self._deadlock_since = float(self.time)
+            return
+        waited = float(self.time) - self._deadlock_since
+        if waited >= self.config.deadlock_timeout_s:
+            raise DeadlockError(
+                "Robots are waiting for each other in a cycle: "
+                + ", ".join(sorted(cycle, key=natural_key))
+            )
+
+    def _start_yield(self, cycle: frozenset[str]) -> bool:
+        """Send the lowest-priority robot of ``cycle`` to a free side cell."""
+        candidates = [
+            self.robot_by_id[robot_id]
+            for robot_id in cycle
+            if robot_id in self.robot_by_id
+            and not self.robot_by_id[robot_id].yielding
+        ]
+        candidates.sort(key=lambda robot: natural_key(robot.robot_id), reverse=True)
+        for robot in candidates:
+            route = self._yield_path(robot)
+            if route is None:
+                continue
+            robot.set_route(route)
+            robot.yielding = True
+            robot.yield_parked_at = None
+            robot.yield_wait_since = None
+            return True
+        return False
+
+    def _yield_path(self, robot: Robot) -> tuple[Coordinate, ...] | None:
+        """Nearest path to a free cell that is off every other robot's route.
+
+        The path may follow reserved or planned cells while moving away from
+        them; only the stop cell must be clear, so the yielding robot does
+        not park in the way of somebody else. Waiting robots keep their
+        routes, so planned routes are the best available proxy for traffic.
+        """
+        blocked = (
+            self._obstacles()
+            | set(self.layout.blocked)
+            | {
+                cell
+                for other in self.robots
+                if other.robot_id != robot.robot_id
+                for cell in self.reservations.window(other.robot_id)
+            }
+        )
+        traffic = {
+            cell
+            for other in self.robots
+            if other.robot_id != robot.robot_id
+            for cell in other.route
+        }
+
+        start = robot.pos
+        parents: dict[Coordinate, Coordinate | None] = {start: None}
+        queue = deque([start])
+        while queue:
+            cell = queue.popleft()
+            if cell != start and cell not in blocked and cell not in traffic:
+                path: list[Coordinate] = []
+                current: Coordinate | None = cell
+                while current is not None:
+                    path.append(current)
+                    current = parents[current]
+                return tuple(reversed(path))
+            for neighbor in self.layout.neighbors(cell):
+                if neighbor in parents or neighbor in blocked:
+                    continue
+                parents[neighbor] = cell
+                queue.append(neighbor)
+        return None
+
+    def _finish_yield(self, robot: Robot) -> None:
+        """Resume the original task after the robot reaches its yield cell.
+
+        A yielding robot stays parked for at least one tick, then keeps
+        waiting while the first cell of its way back is reserved by another
+        robot. That gives the robot it made room for a chance to claim the
+        corridor first; otherwise both robots would bounce back and forth.
+
+        The new route itself ignores reservations beyond that first step: it
+        is only a plan, and the normal movement gate decides when the robot
+        may enter each cell.
+        """
+        if robot.yield_parked_at is None:
+            robot.yield_parked_at = float(self.time)
+            return
+        if float(self.time) <= robot.yield_parked_at:
+            return
+        goal = self._goal_for(robot)
+        if goal is None:
+            robot.yielding = False
+            robot.yield_parked_at = None
+            return
+        holder = self.reservations.owner(goal)
+        if holder not in (None, robot.robot_id):
+            holder_robot = self.robot_by_id.get(holder)
+            if (
+                holder_robot is not None
+                and holder_robot.blocked_by == robot.robot_id
+            ):
+                # The robot we made room for is now stuck behind us. Move
+                # further away instead of waiting for a cell that cannot free
+                # itself while we stand here.
+                away = self._yield_path(robot)
+                if away is not None:
+                    robot.set_route(away)
+                    robot.yield_parked_at = None
+                    robot.yield_wait_since = None
+                    return
+            self._mark_waiting(robot, holder, goal)
+            return
+        try:
+            route = astar_path(
+                self.layout, robot.pos, goal, obstacles=self._obstacles()
+            )
+        except NoPathError:
+            return
+        if len(route) > 1:
+            next_holder = self.reservations.owner(route[1])
+            if next_holder not in (None, robot.robot_id):
+                if robot.yield_wait_since is None:
+                    robot.yield_wait_since = float(self.time)
+                    self._mark_waiting(robot, next_holder, route[1])
+                    return
+                retry_s = max(2.0, self.config.deadlock_timeout_s / 10)
+                if float(self.time) - robot.yield_wait_since < retry_s:
+                    self._mark_waiting(robot, next_holder, route[1])
+                    return
+        robot.blocked = False
+        robot.blocked_cell = None
+        robot.blocked_by = None
+        robot.yielding = False
+        robot.yield_parked_at = None
+        robot.yield_wait_since = None
+        robot.set_route(route)
+
+    @staticmethod
+    def _mark_waiting(robot: Robot, holder_id: str, cell: Coordinate) -> None:
+        """Record a parked robot's blocker so cycle detection can see it."""
+        robot.blocked = True
+        robot.blocked_cell = cell
+        robot.blocked_by = holder_id
+
+    def _goal_for(self, robot: Robot) -> Coordinate | None:
+        task = self._task_of(robot)
+        if task is None:
+            return None
+        if robot.state is RobotState.TO_RACK:
+            return self.racks[task.rack_id].pos
+        if robot.state is RobotState.TO_STATION:
+            return self.layout.stations[task.station_id]
+        if robot.state is RobotState.RETURNING_RACK:
+            if robot.carrying_rack_id is None:
+                return None
+            return self.return_location(self.racks[robot.carrying_rack_id])
+        return None
+
+    def _track_progress(self, robot: Robot) -> None:
+        """Report a robot that cannot move for the whole deadlock timeout.
+
+        A robot in a moving state with a planned route should make progress:
+        either its position or the length of its remaining route changes.
+        Waiting in a station queue is not a stall; those robots are in the
+        ``QUEUED`` state and are ignored here. The timeout catches liveness
+        bugs that are not simple cycles, such as a robot parked on the only
+        way out of a corridor while nobody is formally blocking it.
+        """
+        moving = robot.state in MOVING_STATES and bool(robot.route)
+        if not moving:
+            self._progress_since.pop(robot.robot_id, None)
+            self._progress_signature.pop(robot.robot_id, None)
+            return
+        signature: tuple[object, ...] = (
+            robot.pos,
+            len(robot.route),
+            robot.yielding,
+        )
+        if self._progress_signature.get(robot.robot_id) != signature:
+            self._progress_signature[robot.robot_id] = signature
+            self._progress_since[robot.robot_id] = float(self.time)
+            return
+        since = self._progress_since.get(robot.robot_id, float(self.time))
+        if float(self.time) - since >= self.config.deadlock_timeout_s:
+            raise DeadlockError(
+                f"{robot.robot_id} made no progress for "
+                f"{self.config.deadlock_timeout_s:.0f} s at {robot.pos}"
+            )
+
+    @staticmethod
+    def _find_deadlock_cycle(
+        waits: Mapping[str, str],
+    ) -> frozenset[str] | None:
+        for start in waits:
+            path: list[str] = []
+            index_by_robot: dict[str, int] = {}
+            current = start
+            while current in waits:
+                if current in index_by_robot:
+                    return frozenset(path[index_by_robot[current] :])
+                index_by_robot[current] = len(path)
+                path.append(current)
+                current = waits[current]
+        return None
 
     def _assign_pending_tasks(self) -> None:
         """Nearest free robot for each waiting task, oldest order first."""
@@ -298,6 +655,9 @@ class Warehouse(Model):
         """React to a robot that reached the end of its route."""
         if not robot.route_finished:
             return
+        if robot.yielding:
+            self._finish_yield(robot)
+            return
         if robot.state is RobotState.TO_RACK:
             self._pick_up_rack(robot)
         elif robot.state is RobotState.TO_STATION:
@@ -318,7 +678,10 @@ class Warehouse(Model):
 
     def _arrive_at_station(self, robot: Robot) -> None:
         task = self.tasks_by_id[robot.assigned_task_id]
-        self.stations[task.station_id].enqueue(robot)
+        waiting_since = self._station_wait_started.pop(robot.robot_id, None)
+        self.stations[task.station_id].enqueue(
+            robot, waiting_since=waiting_since
+        )
 
     def pick_duration(self, robot: Robot) -> float:
         """Service time of the rack visit ``robot`` is bringing."""
