@@ -1,13 +1,11 @@
-from __future__ import annotations
-
 from collections import deque
-from typing import TYPE_CHECKING, Iterable
+from typing import Iterable
 
 from mesa import Agent
 
-if TYPE_CHECKING:
-    from src.agents.robot import Robot
-    from src.environment.layout import Coordinate
+
+lazy from src.agents.robot import Robot
+lazy from src.environment.layout import Coordinate
 
 
 class Rack(Agent):
