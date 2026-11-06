@@ -1292,6 +1292,7 @@ dependencies = [
     { name = "mesa", extra = ["viz"] },
     { name = "networkx" },
     { name = "numpy" },
+    { name = "pandas" },
     { name = "solara" },
 ]
 
@@ -1301,6 +1302,7 @@ requires-dist = [
     { name = "mesa", extras = ["viz"], specifier = ">=3.5.2" },
     { name = "networkx", specifier = ">=3.7" },
     { name = "numpy", specifier = ">=2.0" },
+    { name = "pandas", specifier = ">=3.1.0" },
     { name = "solara", specifier = ">=1.65.2" },
 ]
 
