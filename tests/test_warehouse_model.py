@@ -1,5 +1,6 @@
 import unittest
 
+from src.agents.robot import RobotState
 from src.core.config import PickingParams, RobotParams, SimulationConfig
 from src.core.model import Warehouse
 from src.environment.layout import WarehouseLayout
@@ -27,7 +28,21 @@ class WarehouseModelTests(unittest.TestCase):
         self.assertEqual(metrics.average_completion_time, order.completion_time)
         self.assertEqual(metrics.longest_completion_time, order.completion_time)
         self.assertGreater(metrics.total_distance_m, 0)
-        self.assertTrue(self.model.racks["rack-1"].delivered)
+        self.assertEqual(self.model.racks["rack-1"].trips, 1)
+
+    def test_rack_is_returned_home_after_picking(self):
+        self.model.run_until_complete()
+        rack = self.model.racks["rack-1"]
+        robot = self.model.robots[0]
+        self.assertIs(robot.state, RobotState.RETURNING_RACK)
+
+        self.model.run_for(100)
+
+        self.assertEqual(rack.pos, rack.home)
+        self.assertIsNone(rack.carried_by)
+        self.assertTrue(rack.is_free)
+        self.assertIs(robot.state, RobotState.IDLE)
+        self.assertEqual(robot.pos, rack.home)
 
     def test_robot_does_not_move_through_blocked_cells(self):
         self.model.step()

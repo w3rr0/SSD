@@ -68,7 +68,12 @@ class Warehouse(Model):
         if unknown:
             raise ValueError(f"SKUs assigned to unknown racks: {sorted(unknown)}")
         self.racks = {
-            rack_id: Rack(self, rack_id, rack_skus.get(rack_id, ()))
+            rack_id: Rack(
+                self,
+                rack_id,
+                home=self.layout.racks[rack_id],
+                skus=rack_skus.get(rack_id, ()),
+            )
             for rack_id in self.layout.racks
         }
         self.racks_by_sku: dict[str, list[str]] = {}
@@ -279,6 +284,8 @@ class Warehouse(Model):
             self._pick_up_rack(robot)
         elif robot.state is RobotState.TO_STATION:
             self._arrive_at_station(robot)
+        elif robot.state is RobotState.RETURNING_RACK:
+            self._put_down_rack(robot)
 
     def _pick_up_rack(self, robot: Robot) -> None:
         task = self.tasks_by_id[robot.assigned_task_id]
@@ -308,9 +315,22 @@ class Warehouse(Model):
         if order.all_tasks_completed:
             order.complete(self.time)
         rack = self.racks[task.rack_id]
+        rack.trips += 1
+        robot.set_route(self._route(robot.pos, self.return_location(rack)))
+        robot.transition(RobotState.RETURNING_RACK)
+
+    def return_location(self, rack: Rack) -> Coordinate:
+        """Where a rack goes after picking.
+
+        For now every rack returns to its home slot; placement strategies
+        (e.g. nearest free slot by the station, P4) will override this.
+        """
+        return rack.home
+
+    def _put_down_rack(self, robot: Robot) -> None:
+        rack = self.racks[robot.carrying_rack_id]
         rack.carried_by = None
         rack.reserved_by_task = None
-        rack.delivered = True
         robot.clear_assignment()
         robot.transition(RobotState.IDLE)
 

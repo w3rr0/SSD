@@ -7,18 +7,26 @@ from mesa import Agent
 
 if TYPE_CHECKING:
     from src.agents.robot import Robot
+    from src.environment.layout import Coordinate
 
 
 class Rack(Agent):
     """A movable shelf holding a set of products (SKUs)."""
 
-    def __init__(self, model, rack_id: str, skus: Iterable[str] = ()):
+    def __init__(
+        self,
+        model,
+        rack_id: str,
+        home: Coordinate,
+        skus: Iterable[str] = (),
+    ):
         super().__init__(model)
         self.rack_id = rack_id
+        self.home = home
         self.skus: frozenset[str] = frozenset(skus)
         self.carried_by: str | None = None
         self.reserved_by_task: str | None = None
-        self.delivered = False
+        self.trips = 0
 
     @property
     def is_free(self) -> bool:

@@ -13,7 +13,7 @@ def agent_portrayal(agent):
         )
     if isinstance(agent, Rack):
         return AgentPortrayalStyle(
-            color="orange" if not agent.delivered else "gray",
+            color="orange" if agent.carried_by is None else "gray",
             marker="s",
             size=70,
         )

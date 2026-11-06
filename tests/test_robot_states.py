@@ -21,6 +21,7 @@ class RobotStateMachineTests(unittest.TestCase):
         robot = model.robots[0]
 
         model.run_until_complete()
+        model.run_for(100)
 
         visited = [state for _, state in robot.state_history]
         self.assertEqual(
@@ -31,6 +32,7 @@ class RobotStateMachineTests(unittest.TestCase):
                 RobotState.TO_STATION,
                 RobotState.QUEUED,
                 RobotState.PICKING,
+                RobotState.RETURNING_RACK,
                 RobotState.IDLE,
             ],
         )
