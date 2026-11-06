@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 
 from mesa import Model
 from mesa.space import MultiGrid
@@ -11,7 +11,7 @@ from src.agents.warehouse_objects import PickingStation, Rack
 from src.core.config import SimulationConfig
 from src.environment.layout import Coordinate, WarehouseLayout
 from src.metrics.baseline import SimulationMetrics
-from src.orders.models import Order, OrderStatus
+from src.orders.models import Order, OrderLine, OrderStatus, PickTask, TaskStatus
 from src.pipeline.pathfinding import astar_path
 
 
@@ -39,6 +39,7 @@ class Warehouse(Model):
         layout: WarehouseLayout | None = None,
         robot_configs: Sequence[RobotConfig] | None = None,
         orders: Iterable[Order] | None = None,
+        rack_skus: Mapping[str, Iterable[str]] | None = None,
         config: SimulationConfig | None = None,
         rng: int | None = None,
     ):
@@ -61,10 +62,19 @@ class Warehouse(Model):
         for robot, config in zip(self.robots, configs, strict=True):
             self.grid.place_agent(robot, config.start)
 
+        if rack_skus is None:
+            rack_skus = self._default_rack_skus()
+        unknown = set(rack_skus) - set(self.layout.racks)
+        if unknown:
+            raise ValueError(f"SKUs assigned to unknown racks: {sorted(unknown)}")
         self.racks = {
-            rack_id: Rack(self, rack_id)
+            rack_id: Rack(self, rack_id, rack_skus.get(rack_id, ()))
             for rack_id in self.layout.racks
         }
+        self.racks_by_sku: dict[str, list[str]] = {}
+        for rack_id, rack in self.racks.items():
+            for sku in rack.skus:
+                self.racks_by_sku.setdefault(sku, []).append(rack_id)
         self.stations = {
             station_id: PickingStation(self, station_id)
             for station_id in self.layout.stations
@@ -78,6 +88,8 @@ class Warehouse(Model):
         self.orders_by_id: dict[str, Order] = {}
         self.released_orders: list[Order] = []
         self._unreleased: list[Order] = []
+        self.tasks: list[PickTask] = []
+        self.tasks_by_id: dict[str, PickTask] = {}
         for order in self._default_orders() if orders is None else orders:
             self.add_order(order)
 
@@ -110,7 +122,55 @@ class Warehouse(Model):
             return
         self._unreleased = [o for o in self._unreleased if o.created_time > self.time]
         due.sort(key=lambda order: order.created_time)
+        for order in due:
+            self._plan_tasks(order)
         self.released_orders.extend(due)
+
+    def _plan_tasks(self, order: Order) -> None:
+        """Split an order into pick tasks, one per rack it needs.
+
+        Greedy set cover: repeatedly take the rack holding the most remaining
+        lines (ties: closer to the station, then rack ID).
+        """
+        station_id = order.station_id or self._choose_station()
+        order.station_id = station_id
+        station_position = self.layout.stations[station_id]
+        remaining = {line.sku: line for line in order.lines}
+        while remaining:
+            candidates = {
+                rack_id
+                for sku in remaining
+                for rack_id in self.racks_by_sku[sku]
+            }
+            rack_id = min(
+                candidates,
+                key=lambda rid: (
+                    -len(self.racks[rid].skus & remaining.keys()),
+                    self._manhattan(self.racks[rid].pos, station_position),
+                    rid,
+                ),
+            )
+            covered = self.racks[rack_id].skus & remaining.keys()
+            lines = tuple(remaining.pop(sku) for sku in sorted(covered))
+            task = PickTask(
+                task_id=f"{order.order_id}/{len(order.tasks) + 1}",
+                order_id=order.order_id,
+                rack_id=rack_id,
+                station_id=station_id,
+                lines=lines,
+                created_time=self.time,
+            )
+            order.tasks.append(task)
+            self.tasks.append(task)
+            self.tasks_by_id[task.task_id] = task
+
+    def _choose_station(self) -> str:
+        """Station with the fewest unfinished tasks (ties: station ID)."""
+        open_tasks = {station_id: 0 for station_id in self.stations}
+        for task in self.tasks:
+            if task.status is not TaskStatus.COMPLETED:
+                open_tasks[task.station_id] += 1
+        return min(open_tasks, key=lambda sid: (open_tasks[sid], sid))
 
     def _default_robot_configs(self, num_robots: int) -> tuple[RobotConfig, ...]:
         if num_robots <= 0:
@@ -123,19 +183,32 @@ class Warehouse(Model):
             for robot_id, position in starts[:num_robots]
         )
 
+    def _default_rack_skus(self) -> dict[str, frozenset[str]]:
+        """One product per rack: ``rack-7`` holds ``sku-7``."""
+        return {
+            rack_id: frozenset({"sku-" + rack_id.removeprefix("rack-")})
+            for rack_id in self.layout.racks
+        }
+
     def _default_orders(self) -> list[Order]:
-        if not self.layout.racks or not self.layout.stations:
+        if not self.racks or not self.stations:
             return []
-        rack_id = next(iter(self.layout.racks))
-        station_id = next(iter(self.layout.stations))
-        return [Order("order-1", rack_id, station_id)]
+        rack = next(iter(self.racks.values()))
+        if not rack.skus:
+            return []
+        return [Order("order-1", (OrderLine(min(rack.skus)),))]
 
     def _validate_order(self, order: Order) -> None:
-        if order.rack_id not in self.racks:
-            raise ValueError(f"Unknown rack in order {order.order_id}: {order.rack_id}")
-        if order.station_id not in self.stations:
+        if order.station_id is not None and order.station_id not in self.stations:
             raise ValueError(
                 f"Unknown station in order {order.order_id}: {order.station_id}"
+            )
+        if not self.stations:
+            raise ValueError("The layout has no picking stations")
+        missing = sorted(sku for sku in order.skus if sku not in self.racks_by_sku)
+        if missing:
+            raise ValueError(
+                f"Order {order.order_id} needs SKUs stored on no rack: {missing}"
             )
 
     @property
@@ -148,7 +221,7 @@ class Warehouse(Model):
         """One movement tick (called by Mesa every ``TICK_S`` seconds)."""
         # Orders due at this exact time may be scheduled after the tick event.
         self._release_due_orders()
-        self._assign_pending_orders()
+        self._assign_pending_tasks()
 
         for robot in self.robots:
             self._advance_order_state(robot)
@@ -158,28 +231,35 @@ class Warehouse(Model):
 
         self.running = not self.all_orders_completed
 
-    def _assign_pending_orders(self) -> None:
+    def _assign_pending_tasks(self) -> None:
+        """Nearest free robot for each waiting task, oldest order first."""
         available = [robot for robot in self.robots if robot.is_available]
-        busy_racks = {
-            order.rack_id
-            for order in self.orders
-            if order.status is OrderStatus.IN_PROGRESS
-        }
         for order in self.released_orders:
-            if order.status is not OrderStatus.PENDING or not available:
+            if not available:
+                return
+            if order.status is OrderStatus.COMPLETED:
                 continue
-            if order.rack_id in busy_racks:
-                continue
-            rack_position = self.racks[order.rack_id].pos
-            robot = min(
-                available,
-                key=lambda candidate: self._manhattan(candidate.pos, rack_position),
-            )
-            route = self._route(robot.pos, rack_position)
-            order.start(robot.robot_id, self.time)
-            robot.assign_order(order.order_id, route)
-            available.remove(robot)
-            busy_racks.add(order.rack_id)
+            for task in order.tasks:
+                if not available:
+                    return
+                if task.status is not TaskStatus.PENDING:
+                    continue
+                rack = self.racks[task.rack_id]
+                if not rack.is_free:
+                    continue
+                robot = min(
+                    available,
+                    key=lambda candidate: (
+                        self._manhattan(candidate.pos, rack.pos),
+                        candidate.robot_id,
+                    ),
+                )
+                route = self._route(robot.pos, rack.pos)
+                task.start(robot.robot_id, self.time)
+                order.start(self.time)
+                rack.reserved_by_task = task.task_id
+                robot.assign_task(task.task_id, route)
+                available.remove(robot)
 
     def _obstacles(self) -> set[Coordinate]:
         """Cells blocked right now: standing (not carried) racks and stations."""
@@ -201,22 +281,26 @@ class Warehouse(Model):
             self._arrive_at_station(robot)
 
     def _pick_up_rack(self, robot: Robot) -> None:
-        order = self.orders_by_id[robot.assigned_order_id]
-        rack = self.racks[order.rack_id]
+        task = self.tasks_by_id[robot.assigned_task_id]
+        rack = self.racks[task.rack_id]
         if robot.pos != rack.pos:
             raise RuntimeError(f"Robot {robot.robot_id} is not under {rack.rack_id}")
         robot.carrying_rack_id = rack.rack_id
         rack.carried_by = robot.robot_id
-        station_position = self.layout.stations[order.station_id]
+        station_position = self.layout.stations[task.station_id]
         robot.set_route(self._route(robot.pos, station_position))
         robot.transition(RobotState.TO_STATION)
 
     def _arrive_at_station(self, robot: Robot) -> None:
-        order = self.orders_by_id[robot.assigned_order_id]
-        rack = self.racks[order.rack_id]
+        task = self.tasks_by_id[robot.assigned_task_id]
+        rack = self.racks[task.rack_id]
         rack.carried_by = None
+        rack.reserved_by_task = None
         rack.delivered = True
-        order.complete(self.time)
+        task.complete(self.time)
+        order = self.orders_by_id[task.order_id]
+        if order.all_tasks_completed:
+            order.complete(self.time)
         robot.clear_assignment()
         robot.transition(RobotState.IDLE)
 

@@ -73,7 +73,7 @@ class Robot(Agent):
         self.battery = config.battery
         self.distance_travelled_m = 0.0
         self._move_progress = 0.0
-        self.assigned_order_id: str | None = None
+        self.assigned_task_id: str | None = None
         self.carrying_rack_id: str | None = None
         self._route: Deque[Coordinate] = deque()
         self.state = RobotState.IDLE
@@ -113,10 +113,10 @@ class Robot(Agent):
     def route(self) -> tuple[Coordinate, ...]:
         return tuple(self._route)
 
-    def assign_order(self, order_id: str, route: tuple[Coordinate, ...]) -> None:
+    def assign_task(self, task_id: str, route: tuple[Coordinate, ...]) -> None:
         if not self.is_available:
             raise ValueError(f"Robot {self.robot_id} is already assigned")
-        self.assigned_order_id = order_id
+        self.assigned_task_id = task_id
         self.set_route(route)
         self.transition(RobotState.TO_RACK)
 
@@ -126,7 +126,7 @@ class Robot(Agent):
         self._route = deque(route)
 
     def clear_assignment(self) -> None:
-        self.assigned_order_id = None
+        self.assigned_task_id = None
         self.carrying_rack_id = None
         self._route.clear()
 

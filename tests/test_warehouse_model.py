@@ -41,7 +41,7 @@ class WarehouseModelTests(unittest.TestCase):
         self.assertEqual(len(model.robots), 5)
 
     def test_external_order_is_used_without_demo_defaults(self):
-        order = Order("olist-order-1", "rack-1", "station-1")
+        order = Order("olist-order-1", ["sku-1"], station_id="station-1")
         model = Warehouse(layout=self.layout, orders=[order])
 
         model.run_until_complete()
@@ -57,8 +57,8 @@ class WarehouseModelTests(unittest.TestCase):
 
     def test_second_order_for_the_same_rack_is_completed(self):
         orders = [
-            Order("order-1", "rack-1", "station-1"),
-            Order("order-2", "rack-1", "station-1"),
+            Order("order-1", ["sku-1"], station_id="station-1"),
+            Order("order-2", ["sku-1"], station_id="station-1"),
         ]
         model = Warehouse(layout=self.layout, orders=orders)
 
@@ -74,8 +74,8 @@ class WarehouseModelTests(unittest.TestCase):
             stations={"station-1": (1, 0)},
             robot_starts={"robot-1": (1, 2)},
         )
-        first = Order("order-1", "rack-1", "station-1")
-        second = Order("order-2", "rack-2", "station-1")
+        first = Order("order-1", ["sku-1"], station_id="station-1")
+        second = Order("order-2", ["sku-2"], station_id="station-1")
         model = Warehouse(layout=layout, orders=[first, second])
 
         model.run_until_complete(max_time=200)
@@ -108,12 +108,12 @@ class WarehouseModelTests(unittest.TestCase):
         )
 
     def test_orders_arrive_as_scheduled_events(self):
-        late = Order("late", "rack-1", "station-1", created_time=30.0)
+        late = Order("late", ["sku-1"], station_id="station-1", created_time=30.0)
         model = Warehouse(layout=self.layout, orders=[late])
 
         model.run_until(29.0)
         self.assertEqual(model.released_orders, [])
-        self.assertIsNone(late.assigned_robot_id)
+        self.assertIsNone(late.started_time)
 
         model.run_until(30.0)
         self.assertEqual(model.released_orders, [late])
@@ -129,7 +129,9 @@ class WarehouseModelTests(unittest.TestCase):
         model.run_for(10)
 
         with self.assertRaises(ValueError):
-            model.add_order(Order("old", "rack-1", "station-1", created_time=5.0))
+            model.add_order(
+                Order("old", ["sku-1"], station_id="station-1", created_time=5.0)
+            )
 
     def test_visualization_uses_a_page_for_the_space_component(self):
         from src.visualization.server import page, renderer
