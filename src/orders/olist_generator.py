@@ -17,7 +17,7 @@ Each order then gets:
 
 import numpy as np
 import pandas as pd
-uv run python -m unittest tests.test_olist
+
 from src.data.olist import OlistStats
 from src.orders.models import Order, OrderLine
 
