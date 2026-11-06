@@ -1,5 +1,6 @@
 import unittest
 
+from src.core.config import RobotParams, SimulationConfig
 from src.core.model import Warehouse
 from src.environment.layout import WarehouseLayout
 from src.orders.models import Order, OrderStatus
@@ -25,7 +26,7 @@ class WarehouseModelTests(unittest.TestCase):
         self.assertEqual(metrics.completed_orders, 1)
         self.assertEqual(metrics.average_completion_time, order.completion_time)
         self.assertEqual(metrics.longest_completion_time, order.completion_time)
-        self.assertGreater(metrics.total_distance, 0)
+        self.assertGreater(metrics.total_distance_m, 0)
         self.assertTrue(self.model.racks["rack-1"].delivered)
 
     def test_robot_does_not_move_through_blocked_cells(self):
@@ -61,7 +62,7 @@ class WarehouseModelTests(unittest.TestCase):
         ]
         model = Warehouse(layout=self.layout, orders=orders)
 
-        model.run_until_complete(max_steps=200)
+        model.run_until_complete(max_time=200)
 
         self.assertTrue(all(o.status is OrderStatus.COMPLETED for o in orders))
 
@@ -77,14 +78,34 @@ class WarehouseModelTests(unittest.TestCase):
         second = Order("order-2", "rack-2", "station-1")
         model = Warehouse(layout=layout, orders=[first, second])
 
-        model.run_until_complete(max_steps=200)
+        model.run_until_complete(max_time=200)
 
         self.assertGreater(second.waiting_time, first.waiting_time)
         self.assertEqual(
             second.completion_time,
-            second.completed_step - second.created_step,
+            second.completed_time - second.created_time,
         )
         self.assertGreater(second.completion_time, first.completion_time)
+
+    def test_clock_is_in_seconds_and_speed_controls_travel(self):
+        slow = Warehouse(
+            layout=self.layout,
+            config=SimulationConfig(
+                cell_size_m=1.0, robot=RobotParams(speed_m_per_s=0.5)
+            ),
+        )
+        fast = Warehouse(layout=self.layout)
+
+        slow_metrics = slow.run_until_complete()
+        fast_metrics = fast.run_until_complete()
+
+        self.assertEqual(fast.time, fast.steps * SimulationConfig.TICK_S)
+        self.assertEqual(slow_metrics.total_distance_m, fast_metrics.total_distance_m)
+        self.assertAlmostEqual(
+            slow_metrics.average_completion_time,
+            2 * fast_metrics.average_completion_time,
+            delta=2,
+        )
 
     def test_visualization_uses_a_page_for_the_space_component(self):
         from src.visualization.server import page, renderer

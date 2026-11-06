@@ -7,6 +7,7 @@ from mesa.space import MultiGrid
 
 from src.agents.robot import Robot, RobotConfig
 from src.agents.warehouse_objects import PickingStation, Rack
+from src.core.config import SimulationConfig
 from src.environment.layout import Coordinate, WarehouseLayout
 from src.metrics.baseline import SimulationMetrics
 from src.orders.models import Order, OrderStatus
@@ -14,7 +15,11 @@ from src.pipeline.pathfinding import astar_path
 
 
 class Warehouse(Model):
-    """Mesa orchestration layer around replaceable warehouse domain components."""
+    """Mesa orchestration layer around replaceable warehouse domain components.
+
+    ``self.time`` is the simulation clock in seconds; every ``step()`` advances
+    it by ``SimulationConfig.TICK_S``.
+    """
 
     def __init__(
         self,
@@ -24,15 +29,17 @@ class Warehouse(Model):
         layout: WarehouseLayout | None = None,
         robot_configs: Sequence[RobotConfig] | None = None,
         orders: Iterable[Order] | None = None,
+        config: SimulationConfig | None = None,
+        rng: int | None = None,
     ):
-        super().__init__()
+        super().__init__(rng=rng)
+        self.config = config or SimulationConfig()
         self.layout = layout or WarehouseLayout.demo(
             width=width,
             height=height,
             num_robots=num_robots,
         )
         self.grid = MultiGrid(self.layout.width, self.layout.height, torus=False)
-        self.current_step = 0
 
         configs = tuple(
             self._default_robot_configs(num_robots)
@@ -91,7 +98,6 @@ class Warehouse(Model):
                 )
 
     def step(self) -> None:
-        self.current_step += 1
         self._assign_pending_orders()
 
         for robot in self.robots:
@@ -118,7 +124,7 @@ class Warehouse(Model):
                 key=lambda candidate: self._manhattan(candidate.pos, rack_position),
             )
             route = self._route(robot.pos, rack_position)
-            order.start(robot.robot_id, self.current_step)
+            order.start(robot.robot_id, self.time)
             robot.assign_order(order.order_id, route)
             available.remove(robot)
             busy_racks.add(order.rack_id)
@@ -151,7 +157,7 @@ class Warehouse(Model):
             if robot.pos == station_position:
                 rack.carried_by = None
                 rack.delivered = True
-                order.complete(self.current_step)
+                order.complete(self.time)
                 robot.clear_assignment()
 
     def _sync_carried_rack(self, robot: Robot) -> None:
@@ -168,12 +174,18 @@ class Warehouse(Model):
     def metrics(self) -> SimulationMetrics:
         return SimulationMetrics.from_orders(
             self.orders,
-            total_distance=sum(robot.distance_travelled for robot in self.robots),
+            total_distance_m=sum(robot.distance_travelled_m for robot in self.robots),
+            simulated_time=self.time,
         )
 
-    def run_until_complete(self, max_steps: int = 10_000) -> SimulationMetrics:
-        for _ in range(max_steps):
+    def run_until_complete(self, max_time: float = 36_000.0) -> SimulationMetrics:
+        """Run until every order is completed or ``max_time`` seconds pass."""
+        while self.time < max_time:
             if all(order.status is OrderStatus.COMPLETED for order in self.orders):
                 return self.metrics
             self.step()
-        raise TimeoutError("Warehouse did not complete all orders within max_steps")
+        if all(order.status is OrderStatus.COMPLETED for order in self.orders):
+            return self.metrics
+        raise TimeoutError(
+            f"Warehouse did not complete all orders within {max_time} s"
+        )
