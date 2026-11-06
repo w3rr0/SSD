@@ -54,6 +54,38 @@ class WarehouseModelTests(unittest.TestCase):
         self.assertEqual(model.orders, [])
         self.assertEqual(model.metrics.completed_orders, 0)
 
+    def test_second_order_for_the_same_rack_is_completed(self):
+        orders = [
+            Order("order-1", "rack-1", "station-1"),
+            Order("order-2", "rack-1", "station-1"),
+        ]
+        model = Warehouse(layout=self.layout, orders=orders)
+
+        model.run_until_complete(max_steps=200)
+
+        self.assertTrue(all(o.status is OrderStatus.COMPLETED for o in orders))
+
+    def test_completion_time_includes_waiting_for_a_robot(self):
+        layout = WarehouseLayout(
+            width=7,
+            height=5,
+            racks={"rack-1": (5, 2), "rack-2": (5, 4)},
+            stations={"station-1": (1, 0)},
+            robot_starts={"robot-1": (1, 2)},
+        )
+        first = Order("order-1", "rack-1", "station-1")
+        second = Order("order-2", "rack-2", "station-1")
+        model = Warehouse(layout=layout, orders=[first, second])
+
+        model.run_until_complete(max_steps=200)
+
+        self.assertGreater(second.waiting_time, first.waiting_time)
+        self.assertEqual(
+            second.completion_time,
+            second.completed_step - second.created_step,
+        )
+        self.assertGreater(second.completion_time, first.completion_time)
+
     def test_visualization_uses_a_page_for_the_space_component(self):
         from src.visualization.server import page, renderer
 

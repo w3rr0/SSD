@@ -102,18 +102,36 @@ class Warehouse(Model):
 
     def _assign_pending_orders(self) -> None:
         available = [robot for robot in self.robots if robot.is_available]
+        busy_racks = {
+            order.rack_id
+            for order in self.orders
+            if order.status is OrderStatus.IN_PROGRESS
+        }
         for order in self.orders:
             if order.status is not OrderStatus.PENDING or not available:
                 continue
-            rack_position = self.layout.racks[order.rack_id]
+            if order.rack_id in busy_racks:
+                continue
+            rack_position = self.racks[order.rack_id].pos
             robot = min(
                 available,
                 key=lambda candidate: self._manhattan(candidate.pos, rack_position),
             )
-            route = astar_path(self.layout, robot.pos, rack_position)
+            route = self._route(robot.pos, rack_position)
             order.start(robot.robot_id, self.current_step)
             robot.assign_order(order.order_id, route)
             available.remove(robot)
+            busy_racks.add(order.rack_id)
+
+    def _obstacles(self) -> set[Coordinate]:
+        """Cells blocked right now: standing (not carried) racks and stations."""
+        standing_racks = {
+            rack.pos for rack in self.racks.values() if rack.carried_by is None
+        }
+        return standing_racks | set(self.layout.stations.values())
+
+    def _route(self, start: Coordinate, goal: Coordinate) -> tuple[Coordinate, ...]:
+        return astar_path(self.layout, start, goal, obstacles=self._obstacles())
 
     def _advance_order_state(self, robot: Robot) -> None:
         if robot.assigned_order_id is None:
@@ -125,7 +143,7 @@ class Warehouse(Model):
             robot.carrying_rack_id = rack.rack_id
             rack.carried_by = robot.robot_id
             station_position = self.layout.stations[order.station_id]
-            robot.set_route(astar_path(self.layout, robot.pos, station_position))
+            robot.set_route(self._route(robot.pos, station_position))
             return
 
         if robot.carrying_rack_id == rack.rack_id:

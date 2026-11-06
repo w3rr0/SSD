@@ -29,6 +29,19 @@ class AStarTests(unittest.TestCase):
         with self.assertRaises(NoPathError):
             astar_path(layout, (0, 0), (4, 0))
 
+    def test_uses_current_obstacles_instead_of_layout_positions(self):
+        layout = WarehouseLayout(
+            width=5,
+            height=1,
+            racks={"moved-rack": (2, 0)},
+        )
+
+        path = astar_path(layout, (0, 0), (4, 0), obstacles=set())
+
+        self.assertEqual(path, ((0, 0), (1, 0), (2, 0), (3, 0), (4, 0)))
+        with self.assertRaises(NoPathError):
+            astar_path(layout, (0, 0), (4, 0), obstacles={(3, 0)})
+
     def test_reports_unreachable_goal(self):
         layout = WarehouseLayout(
             width=3,

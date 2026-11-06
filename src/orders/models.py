@@ -17,6 +17,7 @@ class Order:
     station_id: str
     status: OrderStatus = OrderStatus.PENDING
     assigned_robot_id: str | None = None
+    created_step: int = 0
     started_step: int | None = None
     completed_step: int | None = None
 
@@ -35,6 +36,14 @@ class Order:
 
     @property
     def completion_time(self) -> int | None:
-        if self.started_step is None or self.completed_step is None:
+        """Time from the order entering the system until it is completed."""
+        if self.completed_step is None:
             return None
-        return self.completed_step - self.started_step
+        return self.completed_step - self.created_step
+
+    @property
+    def waiting_time(self) -> int | None:
+        """Time the order waited for a robot to be assigned."""
+        if self.started_step is None:
+            return None
+        return self.started_step - self.created_step

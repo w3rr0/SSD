@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Collection
 from heapq import heappop, heappush
 from itertools import count
 
@@ -14,8 +15,14 @@ def astar_path(
     layout: WarehouseLayout,
     start: Coordinate,
     goal: Coordinate,
+    obstacles: Collection[Coordinate] | None = None,
 ) -> tuple[Coordinate, ...]:
-    """Return a shortest four-directional route, including start and goal."""
+    """Return a shortest four-directional route, including start and goal.
+
+    ``obstacles`` are cells occupied right now (e.g. racks standing in the
+    warehouse). When omitted, the static rack and station positions from the
+    layout are used. The start and goal cells are never treated as obstacles.
+    """
     layout.validate_position(start)
     layout.validate_position(goal)
     if not layout.is_walkable(start) or not layout.is_walkable(goal):
@@ -23,7 +30,9 @@ def astar_path(
     if start == goal:
         return (start,)
 
-    occupied_cells = set(layout.racks.values()) | set(layout.stations.values())
+    if obstacles is None:
+        obstacles = set(layout.racks.values()) | set(layout.stations.values())
+    occupied_cells = set(obstacles)
     occupied_cells.discard(start)
     occupied_cells.discard(goal)
 
