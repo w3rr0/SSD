@@ -1,4 +1,4 @@
-# Dane Olist i generator zamówień: problemy i decyzje
+# Dane Olist, generator zamówień i walidacja: problemy i decyzje
 
 Ten plik zbiera decyzje podjęte przy kalibracji symulacji na danych Olist:
 co było problemem, jakie były opcje, co wybraliśmy i dlaczego. Liczby
@@ -14,6 +14,10 @@ Pliki, których to dotyczy:
 | `src/orders/olist_generator.py` | generuje zamówienia z tych rozkładów |
 | `runners/olist_report.py` | raport z danych (`make olist_report`) |
 | `runners/olist_validation.py` | walidacja generatora na 2018 (`make olist_validation`) |
+| `runners/olist_plots.py` | wykresy danych i walidacji (`make olist_plots`) |
+| `src/validation/queueing.py` | wzór z teorii kolejek i przedział ufności |
+| `tests/test_queueing.py` | walidacja kolejki: samo stanowisko vs wzór |
+| `runners/queue_validation.py` | walidacja kolejki: cały magazyn vs wzór (`make queue_validation`) |
 
 ## 1. Dane i narzędzia
 
@@ -225,6 +229,92 @@ a generator daje ok. 120.
 - **Brak świąt w 2018.** Dane 2018 kończą się 3.09, więc szczytu
   (Black Friday) nie da się zwalidować na 2018. Wzór szczytu opiera się na
   jednym dniu z 2017.
+
+## 6. Walidacja symulacji z teorią kolejek
+
+### Po co
+Walidacja generatora sprawdza dane wejściowe. Ta sprawdza silnik symulacji:
+czy magazyn poprawnie liczy czas czekania. Bierzemy przypadek, dla którego
+teoria kolejek podaje dokładny wynik, i porównujemy go z symulacją. Celowo bez
+danych Olist, bo wzór zakłada stały ruch, a Olist zmienia się co godzinę.
+Ten sam test warto powtarzać po każdej większej zmianie modelu.
+
+### Wzór
+Stanowisko to kolejka FIFO z jednym pracownikiem. Przy przyjazdach
+z rozkładu Poissona (λ na sekundę) i czasie obsługi S średni czas czekania
+w kolejce to wzór Pollaczka–Chinczyna dla M/G/1:
+`Wq = λ·E[S²] / (2·(1 − ρ))`, gdzie `ρ = λ·E[S]` to obciążenie stanowiska.
+Dla stałej obsługi (M/D/1) to `ρ·E[S] / (2(1 − ρ))`, dla wykładniczej (M/M/1)
+dwa razy więcej. Przykład: obsługa 15 s, robot co 30 s, ρ = 0,5, czekanie 7,5 s.
+
+### Co testujemy
+- **Opcje:** A) samo stanowisko, któremu sami podajemy przyjazdy z rozkładu
+  Poissona (bez siatki i jazdy robotów), B) cały magazyn z jednym
+  stanowiskiem, C) oba.
+- **Decyzja:** oba. B to główna walidacja wymagana przez opis, A to test
+  dodatkowy.
+- **Powód:** w A założenia wzoru są spełnione w 100%, więc A pokazuje, czy
+  sama kolejka działa. Jeśli B odbiega od wzoru, a A nie, różnicę robi ruch
+  robotów, a nie błąd w kolejce.
+
+### Ustawienia
+- Zamówienia: 1 produkt, 1 sztuka, przychodzą ze stałą intensywnością
+  (proces Poissona), produkt losowany równomiernie ze 160 regałów. Obsługa:
+  5 s + 10 s za sztukę, czyli 15 s.
+- Obciążenie stanowiska ρ: 0,3; 0,5; 0,7; 0,9, każde przy obsłudze stałej
+  i wykładniczej.
+- 40 robotów. Sprawdzone, że to nie ogranicza wyniku: przy 120 robotach
+  wynik był taki sam.
+- Zgodność: każde ustawienie 20 razy z innym seedem, odrzucamy początek
+  przebiegu (pusty magazyn), liczymy średnią i 95% przedział ufności.
+  Zgodne, jeśli wzór mieści się w przedziale.
+
+### Długość przebiegów
+- **Problem:** przy krótkich przebiegach (20 000 s) symulacja zaniżała czas
+  czekania przy dużym obciążeniu (ρ = 0,9: 55 s zamiast 67,5 s). Kolejka
+  przy prawie zapchanym stanowisku długo się rozkręca od zera i mocno się
+  waha, więc krótki przebieg jej nie „łapie”. Liczba robotów nie miała
+  wpływu.
+- **Opcje:** A) dłuższe przebiegi tylko przy dużym obciążeniu i kilka
+  procesów naraz, B) zostawić krótkie i opisać zaniżenie, C) mniej ustawień.
+- **Decyzja:** A. Przy ρ 0,3 i 0,5: 2 000 s rozgrzewki + 20 000 s pomiaru,
+  przy 0,7: 5 000 + 40 000 s, przy 0,9: 10 000 + 80 000 s. Całość trwa
+  ok. 7 minut na 4 rdzeniach.
+- **Powód:** sprawdza też duże obciążenie, a czas jest akceptowalny.
+
+### Wynik
+
+Część A (samo stanowisko, 100 000 robotów na ustawienie): zgodne ze wzorem,
+błąd do 3,5% przy ρ = 0,5 i do 8,8% przy ρ = 0,8 (sprawdzone na 30 seedach).
+
+Część B (cały magazyn):
+
+| Obsługa | ρ | Wzór [s] | Symulacja [s] | Wynik |
+| --- | --- | --- | --- | --- |
+| stała | 0,3 | 3,2 | 3,0 ± 0,2 | tuż poza przedziałem |
+| stała | 0,5 | 7,5 | 7,2 ± 0,5 | zgodne |
+| stała | 0,7 | 17,5 | 16,6 ± 0,9 | zgodne |
+| stała | 0,9 | 67,5 | 63,9 ± 5,9 | zgodne |
+| wykładnicza | 0,3 | 6,4 | 6,3 ± 0,8 | zgodne |
+| wykładnicza | 0,5 | 15,0 | 14,0 ± 1,8 | zgodne |
+| wykładnicza | 0,7 | 35,0 | 32,8 ± 2,3 | zgodne |
+| wykładnicza | 0,9 | 135,0 | 117,1 ± 11,4 | niezgodne |
+
+### Znane różnice
+- **Symulacja wychodzi o 3–7% poniżej wzoru we wszystkich ustawieniach.**
+  Roboty ruszają się co 1 s (tik symulacji), więc dojeżdżają do stanowiska
+  tylko w pełnych sekundach. Przez to przyjazdy są trochę bardziej regularne
+  niż czysto losowe: współczynnik zmienności odstępów to 0,97 zamiast 1.
+  Według przybliżenia Kingmana czas czekania rośnie z (C²ₐ + C²ₛ)/2, co daje
+  ok. 6% mniej przy obsłudze stałej i ok. 3% mniej przy wykładniczej. To się
+  zgadza z wynikami, a przy ρ = 0,3 i obsłudze stałej wystarcza, żeby wyjść
+  tuż poza przedział. To cecha modelu z krokiem 1 s, a nie błąd. Sprawdzone
+  też, że kolejka podana dokładnie tymi przyjazdami, które wygenerowała
+  symulacja, daje ten sam czas czekania co stanowisko w modelu.
+- **ρ = 0,9 przy obsłudze wykładniczej** jest nadal zaniżone o 13%. To
+  najbardziej zmienny przypadek. Dłuższe przebiegi zbliżały wynik do wzoru
+  (przy 8 przebiegach po 80 000 s: 120 ± 25 s), ale dalsze wydłużanie
+  zajmuje zbyt dużo czasu.
 
 ## Sprawy otwarte
 - Czym są „pilne zamówienia” w scenariuszu awarii, skoro prawdziwe terminy to
