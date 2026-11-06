@@ -10,7 +10,11 @@ Download it and put these two files in `data/raw/`:
 - `olist_orders_dataset.csv`
 - `olist_order_items_dataset.csv`
 
-With the Kaggle CLI:
+Easiest, from the repository root:
+
+    uv run data/download_olist.py
+
+Or with the Kaggle CLI:
 
     kaggle datasets download -d olistbr/brazilian-ecommerce -p data/raw --unzip
 
