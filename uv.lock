@@ -1981,6 +1981,7 @@ source = { virtual = "." }
 dependencies = [
     { name = "mesa", extra = ["viz"] },
     { name = "networkx" },
+    { name = "numpy" },
     { name = "solara" },
 ]
 
@@ -1988,6 +1989,7 @@ dependencies = [
 requires-dist = [
     { name = "mesa", extras = ["viz"], specifier = ">=3.5.2" },
     { name = "networkx", specifier = ">=3.7" },
+    { name = "numpy", specifier = ">=2.0" },
     { name = "solara", specifier = ">=1.65.2" },
 ]
 

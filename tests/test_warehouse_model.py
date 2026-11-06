@@ -1,6 +1,6 @@
 import unittest
 
-from src.core.config import RobotParams, SimulationConfig
+from src.core.config import PickingParams, RobotParams, SimulationConfig
 from src.core.model import Warehouse
 from src.environment.layout import WarehouseLayout
 from src.orders.models import Order, OrderStatus
@@ -88,13 +88,16 @@ class WarehouseModelTests(unittest.TestCase):
         self.assertGreater(second.completion_time, first.completion_time)
 
     def test_clock_is_in_seconds_and_speed_controls_travel(self):
+        no_picking = PickingParams(fixed_s=0.0, per_item_s=0.0)
         slow = Warehouse(
             layout=self.layout,
             config=SimulationConfig(
-                cell_size_m=1.0, robot=RobotParams(speed_m_per_s=0.5)
+                robot=RobotParams(speed_m_per_s=0.5), picking=no_picking
             ),
         )
-        fast = Warehouse(layout=self.layout)
+        fast = Warehouse(
+            layout=self.layout, config=SimulationConfig(picking=no_picking)
+        )
 
         slow_metrics = slow.run_until_complete()
         fast_metrics = fast.run_until_complete()

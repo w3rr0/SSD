@@ -29,6 +29,8 @@ class RobotStateMachineTests(unittest.TestCase):
                 RobotState.IDLE,
                 RobotState.TO_RACK,
                 RobotState.TO_STATION,
+                RobotState.QUEUED,
+                RobotState.PICKING,
                 RobotState.IDLE,
             ],
         )

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Literal
+
+import numpy as np
 
 SECONDS_PER_HOUR = 3600.0
 
@@ -27,6 +30,37 @@ class RobotParams:
 
 
 @dataclass(frozen=True, slots=True)
+class PickingParams:
+    """Time a picker needs at a station for one rack visit.
+
+    Mean service time = ``fixed_s + per_item_s * items``. With
+    ``distribution="exponential"`` the actual time is drawn from an
+    exponential distribution with that mean (M/M/1 validation); with
+    ``"deterministic"`` it is exactly the mean (M/D/1).
+    """
+
+    fixed_s: float = 5.0
+    per_item_s: float = 10.0
+    distribution: Literal["deterministic", "exponential"] = "deterministic"
+
+    def __post_init__(self) -> None:
+        if self.fixed_s < 0 or self.per_item_s < 0:
+            raise ValueError("Picking times cannot be negative")
+        if self.distribution not in ("deterministic", "exponential"):
+            raise ValueError(f"Unknown distribution: {self.distribution}")
+
+    def mean_duration(self, items: int) -> float:
+        return self.fixed_s + self.per_item_s * items
+
+    def sample(self, items: int, rng: np.random.Generator) -> float:
+        """Draw the service time of one rack visit with ``items`` units."""
+        mean = self.mean_duration(items)
+        if self.distribution == "exponential" and mean > 0:
+            return float(rng.exponential(mean))
+        return mean
+
+
+@dataclass(frozen=True, slots=True)
 class SimulationConfig:
     """Units of the simulation.
 
@@ -39,6 +73,7 @@ class SimulationConfig:
 
     cell_size_m: float = 1.0
     robot: RobotParams = field(default_factory=RobotParams)
+    picking: PickingParams = field(default_factory=PickingParams)
 
     def __post_init__(self) -> None:
         if self.cell_size_m <= 0:

@@ -293,14 +293,24 @@ class Warehouse(Model):
 
     def _arrive_at_station(self, robot: Robot) -> None:
         task = self.tasks_by_id[robot.assigned_task_id]
-        rack = self.racks[task.rack_id]
-        rack.carried_by = None
-        rack.reserved_by_task = None
-        rack.delivered = True
+        self.stations[task.station_id].enqueue(robot)
+
+    def pick_duration(self, robot: Robot) -> float:
+        """Service time of the rack visit ``robot`` is bringing."""
+        task = self.tasks_by_id[robot.assigned_task_id]
+        return self.config.picking.sample(task.items, self.rng)
+
+    def on_pick_finished(self, robot: Robot, station: PickingStation) -> None:
+        """Event handler: the picker finished with the rack ``robot`` holds."""
+        task = self.tasks_by_id[robot.assigned_task_id]
         task.complete(self.time)
         order = self.orders_by_id[task.order_id]
         if order.all_tasks_completed:
             order.complete(self.time)
+        rack = self.racks[task.rack_id]
+        rack.carried_by = None
+        rack.reserved_by_task = None
+        rack.delivered = True
         robot.clear_assignment()
         robot.transition(RobotState.IDLE)
 
@@ -320,6 +330,15 @@ class Warehouse(Model):
             self.orders,
             total_distance_m=sum(robot.distance_travelled_m for robot in self.robots),
             simulated_time=self.time,
+            station_utilisation={
+                station_id: station.utilisation()
+                for station_id, station in self.stations.items()
+            },
+            station_wait_times=[
+                wait
+                for station in self.stations.values()
+                for wait in station.wait_times
+            ],
         )
 
     def run_until_complete(self, max_time: float = 36_000.0) -> SimulationMetrics:

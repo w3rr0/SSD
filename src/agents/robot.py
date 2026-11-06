@@ -28,17 +28,17 @@ TRANSITIONS: dict[RobotState, frozenset[RobotState]] = {
         {RobotState.TO_RACK, RobotState.TO_CHARGER, RobotState.FAILED}
     ),
     RobotState.TO_RACK: frozenset({RobotState.TO_STATION, RobotState.FAILED}),
-    RobotState.TO_STATION: frozenset(
+    RobotState.TO_STATION: frozenset({RobotState.QUEUED, RobotState.FAILED}),
+    RobotState.QUEUED: frozenset({RobotState.PICKING, RobotState.FAILED}),
+    RobotState.PICKING: frozenset(
         {
-            RobotState.QUEUED,
+            RobotState.RETURNING_RACK,
             RobotState.FAILED,
-            # Temporary: the rack stays at the station until the station
-            # queue and rack return are modelled.
+            # Temporary: the rack stays at the station until rack return
+            # is modelled.
             RobotState.IDLE,
         }
     ),
-    RobotState.QUEUED: frozenset({RobotState.PICKING, RobotState.FAILED}),
-    RobotState.PICKING: frozenset({RobotState.RETURNING_RACK, RobotState.FAILED}),
     RobotState.RETURNING_RACK: frozenset({RobotState.IDLE, RobotState.FAILED}),
     RobotState.TO_CHARGER: frozenset({RobotState.CHARGING, RobotState.FAILED}),
     RobotState.CHARGING: frozenset({RobotState.IDLE}),
