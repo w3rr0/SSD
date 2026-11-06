@@ -14,6 +14,7 @@ model_params = {
     "width": 20,
     "height": 20,
     "num_robots": 5,
+    "num_orders": 40,
 }
 
 
