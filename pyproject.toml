@@ -16,3 +16,13 @@ dependencies = [
     "numpy>=2.0",
     "solara>=1.65.2",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = [
+    ".",
+]
