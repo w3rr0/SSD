@@ -107,6 +107,30 @@ class WarehouseModelTests(unittest.TestCase):
             delta=2,
         )
 
+    def test_orders_arrive_as_scheduled_events(self):
+        late = Order("late", "rack-1", "station-1", created_time=30.0)
+        model = Warehouse(layout=self.layout, orders=[late])
+
+        model.run_until(29.0)
+        self.assertEqual(model.released_orders, [])
+        self.assertIsNone(late.assigned_robot_id)
+
+        model.run_until(30.0)
+        self.assertEqual(model.released_orders, [late])
+
+        model.run_until_complete()
+        self.assertGreaterEqual(late.started_time, 30.0)
+        self.assertEqual(
+            late.completion_time, late.completed_time - late.created_time
+        )
+
+    def test_rejects_orders_created_in_the_past(self):
+        model = Warehouse(layout=self.layout, orders=[])
+        model.run_for(10)
+
+        with self.assertRaises(ValueError):
+            model.add_order(Order("old", "rack-1", "station-1", created_time=5.0))
+
     def test_visualization_uses_a_page_for_the_space_component(self):
         from src.visualization.server import page, renderer
 
