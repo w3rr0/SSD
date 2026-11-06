@@ -9,3 +9,6 @@ olist_validation:
 
 olist_plots:
 	uv run runners/olist_plots.py
+
+queue_validation:
+	uv run runners/queue_validation.py
