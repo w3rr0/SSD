@@ -159,6 +159,19 @@ class ReservationTable:
             return ()
         return self._remove(robot_id, window)
 
+    def trim(self, robot_id: str, max_window: int) -> tuple[Coordinate, ...]:
+        """Release the far end of the window, keeping ``max_window`` cells.
+
+        Used when a robot joins a convoy: it only needs its next cell, so the
+        lookahead reserved while it was driving alone is given back.
+        """
+        if max_window < 1:
+            raise ValueError("Window size must be positive")
+        window = self._windows.get(robot_id)
+        if not window or len(window) <= max_window:
+            return ()
+        return self._remove(robot_id, window[max_window:])
+
     def _can_preempt(
         self, requester_id: str, holder_id: str, cell: Coordinate
     ) -> bool:

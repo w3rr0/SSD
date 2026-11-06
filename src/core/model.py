@@ -287,12 +287,83 @@ class Warehouse(Model):
         )
 
     def extend_reservation(self, robot: Robot, *, preempt: bool = False) -> None:
-        """Top up the robot's reservation window along its remaining route."""
+        """Top up the robot's reservation window along its remaining route.
+
+        A robot following another robot in the same direction switches to the
+        short follow window, so a convoy keeps a one-cell headway instead of
+        leaving the full lookahead gap empty. The far end of the previous,
+        longer window is released to make that switch effective.
+        """
+        if not preempt and self._follows_same_direction(robot):
+            limit = self.config.follow_lookahead + 1
+            self.reservations.trim(robot.robot_id, limit)
+            self.reservations.try_extend(
+                robot.robot_id,
+                (robot.pos, *robot.route),
+                max_window=limit,
+            )
+            return
         self.reservations.try_extend(
             robot.robot_id,
             (robot.pos, *robot.route),
             preempt=preempt,
         )
+
+    def _follows_same_direction(self, robot: Robot) -> bool:
+        """Whether ``robot`` is queueing behind a robot heading the same way.
+
+        The first cell of the route held by another robot gives the candidate
+        leader. The follower joins the convoy when its remaining route
+        continues along the leader's own path for at least two cells, or when
+        it is the station cell the leader is currently being served at.
+        """
+        route = robot.route
+        for index, cell in enumerate(route):
+            holder_id = self.reservations.owner(cell)
+            if holder_id is None or holder_id == robot.robot_id:
+                continue
+            if index > self.config.reservation_lookahead:
+                # The leader is too far ahead to constrain the full window;
+                # there is nothing to give back yet.
+                return False
+            leader = self.robot_by_id.get(holder_id)
+            if leader is None or leader.yielding:
+                return False
+            return self._same_corridor(route[index:], leader) or (
+                self._same_station_goal(robot, cell, leader)
+            )
+        return False
+
+    @staticmethod
+    def _same_corridor(tail: tuple[Coordinate, ...], leader: Robot) -> bool:
+        """Whether ``tail`` continues along the leader's path for 2+ cells."""
+        if leader.state not in MOVING_STATES:
+            return False
+        leader_path = (leader.pos, *leader.route)
+        try:
+            index = leader_path.index(tail[0])
+        except ValueError:
+            return False
+        shared = min(len(tail), len(leader_path) - index)
+        if shared < 2:
+            return False
+        return tail[:shared] == leader_path[index : index + shared]
+
+    def _same_station_goal(
+        self, robot: Robot, cell: Coordinate, leader: Robot
+    ) -> bool:
+        """Whether both robots wait for the same station cell, one after one."""
+        if robot.state is not RobotState.TO_STATION:
+            return False
+        if leader.state not in (RobotState.QUEUED, RobotState.PICKING):
+            return False
+        task = self._task_of(robot)
+        leader_task = self._task_of(leader)
+        if task is None or leader_task is None:
+            return False
+        if task.station_id != leader_task.station_id:
+            return False
+        return cell == self.layout.stations[task.station_id]
 
     def _task_of(self, robot: Robot) -> PickTask | None:
         if robot.assigned_task_id is None:

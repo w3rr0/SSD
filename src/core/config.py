@@ -67,8 +67,11 @@ class SimulationConfig:
     ``cell_size_m`` metres wide.
 
     ``reservation_lookahead`` is the number of cells ahead of its current
-    cell a robot reserves. ``deadlock_timeout_s`` is how long a cycle of
-    robots waiting for each other may persist before the model reports it.
+    cell a robot reserves. A robot following another robot in the same
+    direction only reserves ``follow_lookahead`` cells ahead, so a convoy
+    keeps a one-cell headway instead of leaving the full lookahead gap empty.
+    ``deadlock_timeout_s`` is how long a cycle of robots waiting for each
+    other may persist before the model reports it.
     """
 
     TICK_S = 1.0
@@ -77,6 +80,7 @@ class SimulationConfig:
     robot: RobotParams = field(default_factory=RobotParams)
     picking: PickingParams = field(default_factory=PickingParams)
     reservation_lookahead: int = 3
+    follow_lookahead: int = 1
     deadlock_timeout_s: float = 60.0
 
     def __post_init__(self) -> None:
@@ -84,6 +88,11 @@ class SimulationConfig:
             raise ValueError("Cell size must be positive")
         if self.reservation_lookahead < 1:
             raise ValueError("Reservation lookahead must be at least one cell")
+        if not 1 <= self.follow_lookahead <= self.reservation_lookahead:
+            raise ValueError(
+                "Follow lookahead must be between one cell and the "
+                "reservation lookahead"
+            )
         if self.deadlock_timeout_s <= 0:
             raise ValueError("Deadlock timeout must be positive")
 

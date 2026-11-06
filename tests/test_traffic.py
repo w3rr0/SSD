@@ -4,7 +4,7 @@ from src.agents.robot import RobotState
 from src.core.config import PickingParams, SimulationConfig
 from src.core.model import Warehouse
 from src.environment.layout import WarehouseLayout
-from src.orders.models import Order
+from src.orders.models import Order, OrderLine, PickTask
 from src.pipeline.reservations import DeadlockError
 
 
@@ -130,6 +130,130 @@ class StationApproachWaitTests(unittest.TestCase):
             f"expected a robot to wait for the station, got {station.wait_times}",
         )
         self.assertFalse(model._station_wait_started)
+
+
+class GroupCoordinationTests(unittest.TestCase):
+    @staticmethod
+    def _corridor(starts: dict[str, tuple[int, int]]) -> WarehouseLayout:
+        return WarehouseLayout(
+            width=20,
+            height=3,
+            blocked=frozenset((x, y) for x in range(20) for y in (0, 2)),
+            robot_starts=starts,
+        )
+
+    def test_follower_shares_the_corridor_with_a_short_window(self):
+        layout = self._corridor({"robot-1": (5, 1), "robot-2": (2, 1)})
+        model = Warehouse(layout=layout, num_robots=2, orders=[])
+        leader, follower = model.robots
+        leader.set_route(tuple((x, 1) for x in range(6, 13)))
+        leader.transition(RobotState.TO_RACK)
+        follower.set_route(tuple((x, 1) for x in range(3, 13)))
+        follower.transition(RobotState.TO_RACK)
+
+        self.assertTrue(model._follows_same_direction(follower))
+        model.extend_reservation(follower)
+
+        self.assertEqual(
+            model.reservations.window(follower.robot_id),
+            ((2, 1), (3, 1)),
+        )
+        self.assertEqual(len(model.reservations.window(leader.robot_id)), 4)
+
+    def test_opposite_direction_is_not_a_convoy(self):
+        layout = self._corridor({"robot-1": (5, 1), "robot-2": (8, 1)})
+        model = Warehouse(layout=layout, num_robots=2, orders=[])
+        leader, oncoming = model.robots
+        leader.set_route(tuple((x, 1) for x in range(6, 13)))
+        leader.transition(RobotState.TO_RACK)
+        oncoming.set_route(tuple((x, 1) for x in range(7, 0, -1)))
+        oncoming.transition(RobotState.TO_RACK)
+
+        self.assertFalse(model._follows_same_direction(oncoming))
+
+    def test_leaders_beyond_the_window_do_not_shrink_it(self):
+        layout = self._corridor({"robot-1": (10, 1), "robot-2": (0, 1)})
+        model = Warehouse(layout=layout, num_robots=2, orders=[])
+        leader, follower = model.robots
+        leader.set_route(tuple((x, 1) for x in range(11, 19)))
+        leader.transition(RobotState.TO_RACK)
+        follower.set_route(tuple((x, 1) for x in range(1, 19)))
+        follower.transition(RobotState.TO_RACK)
+
+        self.assertFalse(model._follows_same_direction(follower))
+        model.extend_reservation(follower)
+        self.assertEqual(len(model.reservations.window(follower.robot_id)), 4)
+
+    def test_follow_lookahead_must_fit_the_reservation_window(self):
+        with self.assertRaises(ValueError):
+            SimulationConfig(reservation_lookahead=2, follow_lookahead=3)
+        with self.assertRaises(ValueError):
+            SimulationConfig(follow_lookahead=0)
+
+    def test_follower_pulls_up_behind_a_robot_serving_the_same_station(self):
+        layout = WarehouseLayout(
+            width=10,
+            height=3,
+            blocked=frozenset((x, y) for x in range(10) for y in (0, 2)),
+            stations={"station-1": (0, 1)},
+            robot_starts={"robot-1": (2, 1), "robot-2": (3, 1)},
+        )
+        model = Warehouse(layout=layout, num_robots=2, orders=[])
+        leader, follower = model.robots
+        for robot, rack_id in ((leader, "rack-1"), (follower, "rack-2")):
+            task = PickTask(
+                task_id=f"task-{robot.robot_id}",
+                order_id="order-1",
+                rack_id=rack_id,
+                station_id="station-1",
+                lines=(OrderLine("sku-1"),),
+                created_time=0.0,
+            )
+            model.tasks_by_id[task.task_id] = task
+            robot.assigned_task_id = task.task_id
+
+        leader.transition(RobotState.TO_RACK)
+        leader.transition(RobotState.TO_STATION)
+        leader.transition(RobotState.QUEUED)
+        model.grid.move_agent(leader, (0, 1))
+        model.reservations.release_all(leader.robot_id)
+        model.reservations.try_extend(leader.robot_id, ((0, 1),))
+
+        follower.set_route(((2, 1), (1, 1), (0, 1)))
+        follower.transition(RobotState.TO_RACK)
+        follower.transition(RobotState.TO_STATION)
+
+        self.assertTrue(model._follows_same_direction(follower))
+        model.extend_reservation(follower)
+
+        self.assertEqual(
+            model.reservations.window(follower.robot_id),
+            ((3, 1), (2, 1)),
+        )
+
+    def test_two_robots_are_served_one_after_another_at_one_station(self):
+        layout = WarehouseLayout(
+            width=5,
+            height=3,
+            racks={"rack-1": (1, 1), "rack-2": (3, 1)},
+            stations={"station-1": (2, 1)},
+            robot_starts={"robot-1": (1, 0), "robot-2": (3, 0)},
+        )
+        picking = PickingParams(fixed_s=10.0, per_item_s=0.0)
+        orders = [Order("o1", ["sku-1"]), Order("o2", ["sku-2"])]
+        model = Warehouse(
+            layout=layout,
+            num_robots=2,
+            orders=orders,
+            config=SimulationConfig(picking=picking),
+        )
+
+        model.run_until_complete()
+
+        station = model.stations["station-1"]
+        self.assertEqual(station.served, 2)
+        self.assertEqual(len(station.wait_times), 2)
+        self.assertGreaterEqual(max(station.wait_times), 5.0)
 
 
 if __name__ == "__main__":
