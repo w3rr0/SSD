@@ -30,6 +30,13 @@ class SimulationMetrics:
     ``failure_count`` counts failures started during the run.
     ``total_repair_time_s`` includes repairs still in progress at the end,
     while ``average_repair_time`` covers completed repairs only.
+
+    ``total_return_distance_m`` is the distance robots covered while carrying
+    a rack back; ``average_return_distance_m`` divides it by the number of
+    completed returns. ``racks_returned_home_share`` is the fraction of those
+    returns that ended on the rack's ``home`` cell (1.0 until a placement
+    strategy is wired in). ``rack_slot_utilisation`` is the share of the
+    original rack slots occupied by standing racks at the end of the run.
     """
 
     completed_orders: int
@@ -52,6 +59,11 @@ class SimulationMetrics:
     failure_count: int = 0
     total_repair_time_s: float = 0.0
     average_repair_time: float | None = None
+    total_return_distance_m: float = 0.0
+    average_return_distance_m: float | None = None
+    return_trips: int = 0
+    racks_returned_home_share: float | None = None
+    rack_slot_utilisation: float = 0.0
 
     @classmethod
     def from_orders(
@@ -68,6 +80,10 @@ class SimulationMetrics:
         failure_count: int = 0,
         repair_times: Iterable[float] = (),
         total_repair_time_s: float | None = None,
+        total_return_distance_m: float = 0.0,
+        return_trips: int = 0,
+        racks_returned_home: int = 0,
+        rack_slot_utilisation: float = 0.0,
     ) -> SimulationMetrics:
         station_wait_times = list(station_wait_times)
         traffic_wait_times = list(traffic_wait_times)
@@ -124,4 +140,13 @@ class SimulationMetrics:
             average_repair_time=(
                 mean(repair_times) if repair_times else None
             ),
+            total_return_distance_m=total_return_distance_m,
+            average_return_distance_m=(
+                total_return_distance_m / return_trips if return_trips else None
+            ),
+            return_trips=return_trips,
+            racks_returned_home_share=(
+                racks_returned_home / return_trips if return_trips else None
+            ),
+            rack_slot_utilisation=rack_slot_utilisation,
         )
