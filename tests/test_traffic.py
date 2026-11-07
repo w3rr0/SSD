@@ -317,5 +317,44 @@ class WaitingTimeTests(unittest.TestCase):
         self.assertLessEqual(metrics.queue_wait_share, 1.0)
 
 
+class IdleBlockerChainTests(unittest.TestCase):
+    def test_boxed_idle_blockers_are_moved_as_a_chain(self):
+        # Bottom row with the wall below it (outside the grid), racks directly
+        # above the middle robot and idle robots on both sides. This is the
+        # layout that produced "robot-4 made no progress ... at (4, 0)": the
+        # middle robot cannot move alone, so the whole chain has to shift.
+        layout = WarehouseLayout(
+            width=10,
+            height=2,
+            blocked=frozenset(),
+            racks={
+                "rack-1": (3, 1),
+                "rack-2": (4, 1),
+                "rack-3": (5, 1),
+            },
+            stations={"station-1": (9, 0)},
+            robot_starts={
+                "robot-1": (2, 0),
+                "robot-2": (3, 0),
+                "robot-3": (4, 0),
+                "robot-4": (5, 0),
+            },
+        )
+        model = Warehouse(
+            layout=layout,
+            num_robots=4,
+            orders=[],
+            config=SimulationConfig(deadlock_timeout_s=100.0),
+        )
+        working = model.robots[0]
+        working.set_route(((3, 0), (4, 0), (5, 0), (6, 0), (7, 0), (8, 0)))
+        working.transition(RobotState.TO_RACK)
+
+        for _ in range(20):
+            model.step()
+
+        self.assertGreaterEqual(working.pos[0], 5)
+
+
 if __name__ == "__main__":
     unittest.main()

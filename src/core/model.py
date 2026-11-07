@@ -452,22 +452,64 @@ class Warehouse(Model):
         working robot wait for an order that may be minutes away. The idle
         robot is sent to the nearest cell off every working robot's route and
         simply stays there when the detour ends.
+
+        A parked robot can itself be boxed in by other parked robots, for
+        example a row of robots on the bottom aisle with racks above and the
+        wall below. Moving only the direct blocker does nothing then, so the
+        whole cluster of idle robots is searched and the first one with a way
+        out is moved; the rest of the chain follows on later ticks.
         """
         for robot in self.robots:
             if not robot.blocked or robot.blocked_by is None:
                 continue
             blocker = self.robot_by_id.get(robot.blocked_by)
-            if blocker is None or blocker.assigned_task_id is not None:
+            if blocker is None or not self._can_step_aside(blocker):
                 continue
-            if blocker.state is not RobotState.IDLE or blocker.route:
+            escape = self._find_idle_escape(blocker)
+            if escape is None:
                 continue
-            route = self._yield_path(blocker)
-            if route is None:
-                continue
-            blocker.set_route(route)
-            blocker.yielding = True
-            blocker.yield_parked_at = None
-            blocker.yield_wait_since = None
+            mover, route = escape
+            mover.set_route(route)
+            mover.yielding = True
+            mover.yield_parked_at = None
+            mover.yield_wait_since = None
+
+    def _can_step_aside(self, robot: Robot) -> bool:
+        """Whether ``robot`` is an idle robot that may be moved out of the way."""
+        return (
+            robot.state is RobotState.IDLE
+            and robot.assigned_task_id is None
+            and not robot.route
+            and not robot.yielding
+        )
+
+    def _find_idle_escape(
+        self, start: Robot
+    ) -> tuple[Robot, tuple[Coordinate, ...]] | None:
+        """Find an idle robot in the jam around ``start`` that can move away.
+
+        Walks the cluster of idle robots connected through occupied cells and
+        returns the first one with a free cell to escape to. Moving that robot
+        opens one cell; the next tick the robot in front of it can follow, and
+        so on until the working robot is free.
+        """
+        seen = {start.robot_id}
+        queue = deque([start])
+        while queue:
+            candidate = queue.popleft()
+            route = self._yield_path(candidate, avoid_routes=False)
+            if route is not None:
+                return candidate, route
+            for neighbor in self.layout.neighbors(candidate.pos):
+                holder_id = self.reservations.owner(neighbor)
+                if holder_id is None or holder_id in seen:
+                    continue
+                holder = self.robot_by_id.get(holder_id)
+                if holder is None or not self._can_step_aside(holder):
+                    continue
+                seen.add(holder_id)
+                queue.append(holder)
+        return None
 
     def _check_deadlock(self) -> None:
         """Break a waiting cycle by yielding, or raise after the timeout.
@@ -530,13 +572,20 @@ class Warehouse(Model):
             return True
         return False
 
-    def _yield_path(self, robot: Robot) -> tuple[Coordinate, ...] | None:
+    def _yield_path(
+        self, robot: Robot, *, avoid_routes: bool = True
+    ) -> tuple[Coordinate, ...] | None:
         """Nearest path to a free cell that is off every other robot's route.
 
         The path may follow reserved or planned cells while moving away from
         them; only the stop cell must be clear, so the yielding robot does
         not park in the way of somebody else. Waiting robots keep their
         routes, so planned routes are the best available proxy for traffic.
+
+        With ``avoid_routes=False`` the robot may stop on a planned route.
+        That is what idle robots use when they are part of a jam: they shift
+        one step forward and the working robot follows, instead of parking in
+        a side aisle that the rest of the chain still needs.
         """
         blocked = (
             self._obstacles()
@@ -548,12 +597,16 @@ class Warehouse(Model):
                 for cell in self.reservations.window(other.robot_id)
             }
         )
-        traffic = {
-            cell
-            for other in self.robots
-            if other.robot_id != robot.robot_id
-            for cell in other.route
-        }
+        traffic = (
+            {
+                cell
+                for other in self.robots
+                if other.robot_id != robot.robot_id
+                for cell in other.route
+            }
+            if avoid_routes
+            else set()
+        )
 
         start = robot.pos
         parents: dict[Coordinate, Coordinate | None] = {start: None}
