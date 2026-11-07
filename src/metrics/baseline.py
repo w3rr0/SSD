@@ -26,6 +26,10 @@ class SimulationMetrics:
     ``charger_utilisation`` is the share of the run each charger spent
     charging; ``average_charging_time`` is the mean length of a completed
     session.
+
+    ``failure_count`` counts failures started during the run.
+    ``total_repair_time_s`` includes repairs still in progress at the end,
+    while ``average_repair_time`` covers completed repairs only.
     """
 
     completed_orders: int
@@ -45,6 +49,9 @@ class SimulationMetrics:
     charger_utilisation: dict[str, float] = field(default_factory=dict)
     total_charging_time_s: float = 0.0
     average_charging_time: float | None = None
+    failure_count: int = 0
+    total_repair_time_s: float = 0.0
+    average_repair_time: float | None = None
 
     @classmethod
     def from_orders(
@@ -58,10 +65,14 @@ class SimulationMetrics:
         charger_utilisation: dict[str, float] | None = None,
         charging_times: Iterable[float] = (),
         total_charging_time_s: float | None = None,
+        failure_count: int = 0,
+        repair_times: Iterable[float] = (),
+        total_repair_time_s: float | None = None,
     ) -> SimulationMetrics:
         station_wait_times = list(station_wait_times)
         traffic_wait_times = list(traffic_wait_times)
         charging_times = list(charging_times)
+        repair_times = list(repair_times)
         completed = [order for order in orders if order.completion_time is not None]
         durations = [order.completion_time for order in completed]
         waits = [order.waiting_time for order in completed]
@@ -103,5 +114,14 @@ class SimulationMetrics:
             ),
             average_charging_time=(
                 mean(charging_times) if charging_times else None
+            ),
+            failure_count=failure_count,
+            total_repair_time_s=(
+                sum(repair_times)
+                if total_repair_time_s is None
+                else total_repair_time_s
+            ),
+            average_repair_time=(
+                mean(repair_times) if repair_times else None
             ),
         )
