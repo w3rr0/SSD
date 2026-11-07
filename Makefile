@@ -12,3 +12,6 @@ olist_plots:
 
 queue_validation:
 	uv run runners/queue_validation.py
+
+run_visual_olist:
+	uv run runners/run_visual_olist.py
