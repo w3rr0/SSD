@@ -386,9 +386,10 @@ Testy sprawdzają, że każdy produkt leży na dokładnie jednym regale, klasy A
 liczą się zgodnie z progami, klasa A stoi bliżej niż B, a B bliżej niż C,
 a przy powrocie regał wybiera najbliższe wolne miejsce i dwa regały nigdy nie
 stoją na jednym polu. Krótki przebieg na prawdziwych danych (4 h zamówień
-z Olist, ruch ×5, 8 robotów, 160 regałów) działa: przy ABC roboty przejechały
-4,7 km zamiast 5,9 km przy losowym, a średni czas realizacji spadł z 41 s do
-36 s. To tylko sprawdzenie, że całość działa, a nie wynik eksperymentu.
+z Olist, ruch ×5, 8 robotów, 160 regałów, parametry robota z sekcji 8)
+działa: przy ABC roboty przejechały 4,7 km zamiast 5,9 km przy losowym,
+a średni czas realizacji spadł z 26 s do 23 s. To tylko sprawdzenie, że
+całość działa, a nie wynik eksperymentu.
 
 ## 8. Parametry robota
 
