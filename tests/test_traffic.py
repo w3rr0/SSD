@@ -256,5 +256,66 @@ class GroupCoordinationTests(unittest.TestCase):
         self.assertGreaterEqual(max(station.wait_times), 5.0)
 
 
+class WaitingTimeTests(unittest.TestCase):
+    def test_standing_behind_another_robot_is_traffic_wait(self):
+        layout = WarehouseLayout(
+            width=5,
+            height=3,
+            blocked=frozenset((x, y) for x in range(5) for y in (0, 2)),
+            racks={"rack-1": (0, 1)},
+            stations={"station-1": (4, 1)},
+            robot_starts={"robot-1": (1, 1), "robot-2": (2, 1)},
+        )
+        model = Warehouse(
+            layout=layout,
+            num_robots=2,
+            orders=[],
+            config=SimulationConfig(deadlock_timeout_s=100.0),
+        )
+        first, second = model.robots
+        first.set_route(((2, 1), (3, 1), (4, 1)))
+        first.transition(RobotState.TO_RACK)
+        second.set_route(((1, 1), (0, 1)))
+        second.transition(RobotState.TO_RACK)
+
+        for _ in range(5):
+            model.step()
+
+        metrics = model.metrics
+        self.assertEqual(first.traffic_wait_s, 5.0)
+        self.assertEqual(second.traffic_wait_s, 5.0)
+        self.assertEqual(metrics.total_traffic_wait_s, 10.0)
+        self.assertAlmostEqual(metrics.average_traffic_wait_s, 5.0)
+        self.assertAlmostEqual(metrics.traffic_wait_share, 1.0)
+
+    def test_station_queue_wait_is_not_counted_as_traffic(self):
+        layout = WarehouseLayout(
+            width=5,
+            height=3,
+            racks={"rack-1": (1, 1), "rack-2": (3, 1)},
+            stations={"station-1": (2, 1)},
+            robot_starts={"robot-1": (1, 0), "robot-2": (3, 0)},
+        )
+        picking = PickingParams(fixed_s=10.0, per_item_s=0.0)
+        orders = [Order("o1", ["sku-1"]), Order("o2", ["sku-2"])]
+        model = Warehouse(
+            layout=layout,
+            num_robots=2,
+            orders=orders,
+            config=SimulationConfig(picking=picking),
+        )
+
+        metrics = model.run_until_complete()
+
+        self.assertEqual(metrics.total_traffic_wait_s, 0.0)
+        self.assertGreater(metrics.total_queue_wait_s, 0.0)
+        self.assertEqual(
+            metrics.total_queue_wait_s,
+            sum(model.stations["station-1"].wait_times),
+        )
+        self.assertGreater(metrics.queue_wait_share, 0.0)
+        self.assertLessEqual(metrics.queue_wait_share, 1.0)
+
+
 if __name__ == "__main__":
     unittest.main()
