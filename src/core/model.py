@@ -1,6 +1,7 @@
 from collections import deque
 from collections.abc import Iterable, Mapping, Sequence
 
+import numpy as np
 from mesa import Model
 from mesa.space import MultiGrid
 from mesa.time import Priority
@@ -54,6 +55,9 @@ class Warehouse(Model):
     ):
         super().__init__(rng=rng)
         self.config = config or SimulationConfig()
+        # Failures draw from their own stream so enabling them does not change
+        # order arrivals or picking times; scenarios stay comparable.
+        self._failure_rng = np.random.default_rng([self._seed, 1])
         self.layout = layout or WarehouseLayout.demo(
             width=width,
             height=height,
@@ -125,10 +129,15 @@ class Warehouse(Model):
         self._yield_last_attempt = float("-inf")
         self._progress_since: dict[str, float] = {}
         self._progress_signature: dict[str, tuple[object, ...]] = {}
+        self.failure_count = 0
+        self.repair_times: list[float] = []
+        self._failed_at: dict[str, float] = {}
         if orders is None:
             orders = self._default_orders(num_orders)
         for order in orders:
             self.add_order(order)
+        for robot in self.robots:
+            self._schedule_next_failure(robot)
 
     def add_order(self, order: Order) -> None:
         """Register an order; it enters the system at ``order.created_time``.
@@ -717,6 +726,63 @@ class Warehouse(Model):
             return self.layout.chargers[robot.charger_id]
         return None
 
+    def _schedule_next_failure(self, robot: Robot) -> None:
+        """Schedule the next failure of ``robot`` as a discrete event."""
+        params = self.config.failures
+        if params.mean_time_to_failure_s is None:
+            return
+        delay = float(
+            self._failure_rng.exponential(params.mean_time_to_failure_s)
+        )
+        self.schedule_event(robot.on_failure_event, after=delay)
+
+    def handle_failure(self, robot: Robot) -> None:
+        """Event handler: stop ``robot`` or retry while it is busy.
+
+        Picking, queueing and charging cannot be interrupted without losing
+        the completion event that moves the robot on, so the failure is
+        retried after ``retry_interval_s`` instead.
+        """
+        if robot.state is RobotState.FAILED:
+            return
+        if not robot.can_fail:
+            self.schedule_event(
+                robot.on_failure_event,
+                after=self.config.failures.retry_interval_s,
+            )
+            return
+        robot.fail()
+        self.failure_count += 1
+        self._failed_at[robot.robot_id] = float(self.time)
+        repair_s = float(
+            self._failure_rng.exponential(self.config.failures.mean_repair_time_s)
+        )
+        self.schedule_event(robot.on_repair_event, after=repair_s)
+
+    def handle_repair(self, robot: Robot) -> None:
+        """Event handler: the robot is repaired and resumes its old route."""
+        if robot.state is not RobotState.FAILED:
+            return
+        robot.repair()
+        failed_at = self._failed_at.pop(robot.robot_id, None)
+        if failed_at is not None:
+            self.repair_times.append(float(self.time) - failed_at)
+        self._schedule_next_failure(robot)
+
+    def _waiting_for_repair(self, robot: Robot) -> bool:
+        """Whether the blocker chain of ``robot`` ends at a failed robot."""
+        seen: set[str] = set()
+        current = robot
+        while current.blocked_by is not None and current.robot_id not in seen:
+            seen.add(current.robot_id)
+            blocker = self.robot_by_id.get(current.blocked_by)
+            if blocker is None:
+                return False
+            if blocker.state is RobotState.FAILED:
+                return True
+            current = blocker
+        return False
+
     def _track_progress(self, robot: Robot) -> None:
         """Report a robot that cannot move for the whole deadlock timeout.
 
@@ -729,6 +795,12 @@ class Warehouse(Model):
         """
         moving = robot.state in MOVING_STATES and bool(robot.route)
         if not moving:
+            self._progress_since.pop(robot.robot_id, None)
+            self._progress_signature.pop(robot.robot_id, None)
+            return
+        if self._waiting_for_repair(robot):
+            # The robot cannot move because a failed robot is in the way.
+            # That is expected downtime, not a liveness bug.
             self._progress_since.pop(robot.robot_id, None)
             self._progress_signature.pop(robot.robot_id, None)
             return
@@ -765,22 +837,29 @@ class Warehouse(Model):
         return None
 
     def _assign_pending_tasks(self) -> None:
-        """Nearest free robot for each waiting task, oldest order first.
+        """Nearest free robot for each waiting task, urgent orders first.
 
-        Robots that need a charge are held back even when no charger is free
-        yet: a robot below the threshold should not start a trip it may not be
-        able to finish.
+        Urgent orders jump ahead of normal orders; the sort is stable, so
+        within the same urgency the release order is kept. Robots that need a
+        charge are held back even when no charger is free yet: a robot below
+        the threshold should not start a trip it may not be able to finish.
         """
         available = [
             robot
             for robot in self.robots
             if robot.is_available and not self._needs_charge(robot)
         ]
-        for order in self.released_orders:
+        orders = sorted(
+            (
+                order
+                for order in self.released_orders
+                if order.status is not OrderStatus.COMPLETED
+            ),
+            key=lambda order: not order.urgent,
+        )
+        for order in orders:
             if not available:
                 return
-            if order.status is OrderStatus.COMPLETED:
-                continue
             for task in order.tasks:
                 if not available:
                     return
@@ -989,6 +1068,15 @@ class Warehouse(Model):
             ],
             total_charging_time_s=sum(
                 charger.busy_time() for charger in self.chargers.values()
+            ),
+            failure_count=self.failure_count,
+            repair_times=self.repair_times,
+            total_repair_time_s=(
+                sum(self.repair_times)
+                + sum(
+                    float(self.time) - failed_at
+                    for failed_at in self._failed_at.values()
+                )
             ),
         )
 

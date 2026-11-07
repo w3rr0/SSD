@@ -80,6 +80,36 @@ class PickingParams:
 
 
 @dataclass(frozen=True, slots=True)
+class FailureParams:
+    """Failure and repair process of the fleet.
+
+    ``mean_time_to_failure_s`` is the mean time between failures of one robot;
+    draws are exponential, so failures form a Poisson process. ``None``
+    disables failures, which keeps the baseline comparable. Once a robot has
+    failed, ``mean_repair_time_s`` is the mean time until it is repaired.
+
+    ``retry_interval_s`` is how long a failure event waits when it arrives
+    while the robot is picking, queueing or charging. Those states are atomic
+    in the model, so the failure is retried after the robot is free again.
+    """
+
+    mean_time_to_failure_s: float | None = None
+    mean_repair_time_s: float = 300.0
+    retry_interval_s: float = 10.0
+
+    def __post_init__(self) -> None:
+        if (
+            self.mean_time_to_failure_s is not None
+            and self.mean_time_to_failure_s <= 0
+        ):
+            raise ValueError("Mean time to failure must be positive")
+        if self.mean_repair_time_s <= 0:
+            raise ValueError("Mean repair time must be positive")
+        if self.retry_interval_s <= 0:
+            raise ValueError("Failure retry interval must be positive")
+
+
+@dataclass(frozen=True, slots=True)
 class SimulationConfig:
     """Units of the simulation.
 
@@ -92,7 +122,8 @@ class SimulationConfig:
     direction only reserves ``follow_lookahead`` cells ahead, so a convoy
     keeps a one-cell headway instead of leaving the full lookahead gap empty.
     ``deadlock_timeout_s`` is how long a cycle of robots waiting for each
-    other may persist before the model reports it.
+    other may persist before the model reports it. ``failures`` controls the
+    optional failure/repair process; it is disabled by default.
     """
 
     TICK_S = 1.0
@@ -100,6 +131,7 @@ class SimulationConfig:
     cell_size_m: float = 1.0
     robot: RobotParams = field(default_factory=RobotParams)
     picking: PickingParams = field(default_factory=PickingParams)
+    failures: FailureParams = field(default_factory=FailureParams)
     reservation_lookahead: int = 3
     follow_lookahead: int = 1
     deadlock_timeout_s: float = 60.0
