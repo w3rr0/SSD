@@ -267,17 +267,41 @@ class Warehouse(Model):
         self._release_due_orders()
         self._assign_pending_tasks()
 
+        standing: list[str] = []
+
         for robot in self.robots:
+            start_position = robot.pos
             self._advance_order_state(robot)
             robot.step()
             self._sync_carried_rack(robot)
             self._advance_order_state(robot)
+            if (
+                robot.blocked
+                and robot.blocked_by is not None
+                and robot.pos == start_position
+            ):
+                standing.append(robot.robot_id)
             self._track_progress(robot)
 
         self._record_station_waits()
+        self._record_traffic_waits(standing)
         self._clear_idle_blockers()
         self._check_deadlock()
         self.running = not self.all_orders_completed
+
+    def _record_traffic_waits(self, standing: Iterable[str]) -> None:
+        """Charge a tick spent standing behind another robot to traffic.
+
+        Only ticks in which the robot did not move at all are counted, so a
+        tick that covered a cell and then found the next one taken still
+        belongs to the journey. Robots waiting for a station are already on
+        the station queue clock and are skipped: the same second must not be
+        reported both as a queue wait and as a traffic wait.
+        """
+        for robot_id in standing:
+            if robot_id in self._station_wait_started:
+                continue
+            self.robot_by_id[robot_id].traffic_wait_s += self.config.TICK_S
 
     def reset_reservation(self, robot: Robot) -> None:
         """Replace the robot's reservation window with its current route."""
@@ -811,6 +835,7 @@ class Warehouse(Model):
                 for station in self.stations.values()
                 for wait in station.wait_times
             ],
+            traffic_wait_times=[robot.traffic_wait_s for robot in self.robots],
         )
 
     def run_until_complete(self, max_time: float = 36_000.0) -> SimulationMetrics:
