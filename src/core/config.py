@@ -110,6 +110,31 @@ class FailureParams:
 
 
 @dataclass(frozen=True, slots=True)
+class AssignmentParams:
+    """Weights for the robot-to-task assignment rules.
+
+    ``strategy`` picks the rule: ``nearest`` keeps the original behaviour and
+    ``deadline_battery`` trades travel time against battery level.
+    ``deadline_horizon_s`` is the slack at which the shipment deadline stops
+    influencing the choice. ``battery_weight_s`` is the extra travel time
+    charged to a robot with an empty battery compared to a full one; it is
+    only fully applied when the deadline is not tight.
+    """
+
+    strategy: Literal["nearest", "deadline_battery"] = "nearest"
+    deadline_horizon_s: float = 1800.0
+    battery_weight_s: float = 300.0
+
+    def __post_init__(self) -> None:
+        if self.strategy not in ("nearest", "deadline_battery"):
+            raise ValueError(f"Unknown assignment strategy: {self.strategy}")
+        if self.deadline_horizon_s <= 0:
+            raise ValueError("Deadline horizon must be positive")
+        if self.battery_weight_s < 0:
+            raise ValueError("Battery weight cannot be negative")
+
+
+@dataclass(frozen=True, slots=True)
 class SimulationConfig:
     """Units of the simulation.
 
@@ -123,7 +148,8 @@ class SimulationConfig:
     keeps a one-cell headway instead of leaving the full lookahead gap empty.
     ``deadlock_timeout_s`` is how long a cycle of robots waiting for each
     other may persist before the model reports it. ``failures`` controls the
-    optional failure/repair process; it is disabled by default.
+    optional failure/repair process; it is disabled by default. ``assignment``
+    selects the robot-to-task rule and its weights.
     """
 
     TICK_S = 1.0
@@ -132,6 +158,7 @@ class SimulationConfig:
     robot: RobotParams = field(default_factory=RobotParams)
     picking: PickingParams = field(default_factory=PickingParams)
     failures: FailureParams = field(default_factory=FailureParams)
+    assignment: AssignmentParams = field(default_factory=AssignmentParams)
     reservation_lookahead: int = 3
     follow_lookahead: int = 1
     deadlock_timeout_s: float = 60.0

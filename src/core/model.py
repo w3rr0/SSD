@@ -21,6 +21,11 @@ from src.pipeline.reservations import (
     lowest_id_wins,
     natural_key,
 )
+from src.strategies.assignment import (
+    AssignmentRequest,
+    AssignmentStrategy,
+    strategy_for,
+)
 
 
 class Warehouse(Model):
@@ -52,9 +57,13 @@ class Warehouse(Model):
         config: SimulationConfig | None = None,
         rng: int | None = None,
         resolve_conflict: ConflictResolver = lowest_id_wins,
+        assign_robot: AssignmentStrategy | None = None,
     ):
         super().__init__(rng=rng)
         self.config = config or SimulationConfig()
+        self.assign_robot = assign_robot or strategy_for(
+            self.config.assignment.strategy
+        )
         # Failures draw from their own stream so enabling them does not change
         # order arrivals or picking times; scenarios stay comparable.
         self._failure_rng = np.random.default_rng([self._seed, 1])
@@ -837,11 +846,12 @@ class Warehouse(Model):
         return None
 
     def _assign_pending_tasks(self) -> None:
-        """Nearest free robot for each waiting task, urgent orders first.
+        """Offer waiting tasks to free robots, urgent orders first.
 
         Urgent orders jump ahead of normal orders; the sort is stable, so
-        within the same urgency the release order is kept. Robots that need a
-        charge are held back even when no charger is free yet: a robot below
+        within the same urgency the release order is kept. The robot itself is
+        chosen by ``self.assign_robot`` (nearest by default). Robots that need
+        a charge are held back even when no charger is free yet: a robot below
         the threshold should not start a trip it may not be able to finish.
         """
         available = [
@@ -868,13 +878,21 @@ class Warehouse(Model):
                 rack = self.racks[task.rack_id]
                 if not rack.is_free:
                     continue
-                robot = min(
-                    available,
-                    key=lambda candidate: (
-                        self._manhattan(candidate.pos, rack.pos),
-                        candidate.robot_id,
-                    ),
+                request = AssignmentRequest(
+                    task=task,
+                    order=order,
+                    rack_position=rack.pos,
+                    now=float(self.time),
+                    seconds_per_cell=self.config.seconds_per_cell,
+                    battery_capacity_pct=self.config.robot.battery_capacity_pct,
+                    params=self.config.assignment,
                 )
+                robot = self.assign_robot(request, available)
+                if robot not in available:
+                    raise ValueError(
+                        "Assignment strategy returned a robot that is not free: "
+                        f"{getattr(robot, 'robot_id', robot)!r}"
+                    )
                 route = self._route(robot.pos, rack.pos)
                 task.start(robot.robot_id, self.time)
                 order.start(self.time)
