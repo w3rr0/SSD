@@ -1,7 +1,7 @@
-run_visual:
+visual:
 	uv run runners/run_visual.py
 
-run_baseline:
+baseline:
 	uv run runners/run_baseline.py
 
 test:
