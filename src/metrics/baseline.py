@@ -8,7 +8,21 @@ from src.orders.models import Order
 
 @dataclass(frozen=True, slots=True)
 class SimulationMetrics:
-    """Summary of a run. Times are in seconds, distances in metres."""
+    """Summary of a run. Times are in seconds, distances in metres.
+
+    Two kinds of standing time are reported separately:
+
+    * **traffic wait** - a tick in which a robot did not move because another
+      robot held the next cell (a jam in an aisle or at a junction),
+    * **queue wait** - time a robot waited for its picking station, from the
+      moment it first stood in the approach lane until service started.
+
+    ``traffic_wait_share`` and ``queue_wait_share`` divide the totals by the
+    robot-time available in the run (robots x simulated seconds), so they show
+    which part of the fleet's capacity was lost to jams and to station queues.
+    ``average_traffic_wait_s`` is per robot, while ``average_station_wait`` is
+    per station visit.
+    """
 
     completed_orders: int
     average_completion_time: float | None
@@ -19,6 +33,11 @@ class SimulationMetrics:
     simulated_time: float
     station_utilisation: dict[str, float] = field(default_factory=dict)
     average_station_wait: float | None = None
+    total_traffic_wait_s: float = 0.0
+    average_traffic_wait_s: float | None = None
+    traffic_wait_share: float | None = None
+    total_queue_wait_s: float = 0.0
+    queue_wait_share: float | None = None
 
     @classmethod
     def from_orders(
@@ -28,11 +47,16 @@ class SimulationMetrics:
         simulated_time: float,
         station_utilisation: dict[str, float] | None = None,
         station_wait_times: Iterable[float] = (),
+        traffic_wait_times: Iterable[float] = (),
     ) -> SimulationMetrics:
         station_wait_times = list(station_wait_times)
+        traffic_wait_times = list(traffic_wait_times)
         completed = [order for order in orders if order.completion_time is not None]
         durations = [order.completion_time for order in completed]
         waits = [order.waiting_time for order in completed]
+        total_queue_wait = sum(station_wait_times)
+        total_traffic_wait = sum(traffic_wait_times)
+        robot_time = simulated_time * len(traffic_wait_times)
         return cls(
             completed_orders=len(completed),
             average_completion_time=mean(durations) if durations else None,
@@ -48,5 +72,16 @@ class SimulationMetrics:
             station_utilisation=dict(station_utilisation or {}),
             average_station_wait=(
                 mean(station_wait_times) if station_wait_times else None
+            ),
+            total_traffic_wait_s=total_traffic_wait,
+            average_traffic_wait_s=(
+                mean(traffic_wait_times) if traffic_wait_times else None
+            ),
+            traffic_wait_share=(
+                total_traffic_wait / robot_time if robot_time > 0 else None
+            ),
+            total_queue_wait_s=total_queue_wait,
+            queue_wait_share=(
+                total_queue_wait / robot_time if robot_time > 0 else None
             ),
         )
