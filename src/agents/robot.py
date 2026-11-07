@@ -62,6 +62,7 @@ class Robot(Agent):
         self.robot_id = config.robot_id
         self.battery = config.battery
         self.distance_travelled_m = 0.0
+        self.traffic_wait_s = 0.0
         self._move_progress = 0.0
         self.assigned_task_id: str | None = None
         self.carrying_rack_id: str | None = None
