@@ -32,11 +32,73 @@ class Rack(Agent):
 
 
 class Charger(Agent):
-    """A charging spot. Charging logic arrives with the battery model (P5)."""
+    """A charging spot serving one robot at a time.
+
+    A robot reserves the charger before it starts driving, so two robots never
+    head for the same spot. Charging itself is a discrete event: the robot
+    arrives, the model schedules the end of the charge, and the charger stays
+    busy for that whole time.
+    """
 
     def __init__(self, model, charger_id: str):
         super().__init__(model)
         self.charger_id = charger_id
+        self.reserved_by: str | None = None
+        self.robot: Robot | None = None
+        self.charging_times: list[float] = []
+        self._busy_time = 0.0
+        self._busy_since: float | None = None
+
+    @property
+    def is_free(self) -> bool:
+        return self.reserved_by is None
+
+    def reserve(self, robot_id: str) -> None:
+        """Claim the charger for ``robot_id`` while it drives here."""
+        if self.reserved_by is not None:
+            raise ValueError(
+                f"{self.charger_id} is already reserved by {self.reserved_by}"
+            )
+        self.reserved_by = robot_id
+
+    def occupy(self, robot: Robot) -> None:
+        """Start charging ``robot``; the caller schedules the end event."""
+        if self.reserved_by != robot.robot_id:
+            raise ValueError(
+                f"{robot.robot_id} cannot charge at {self.charger_id} "
+                f"reserved by {self.reserved_by}"
+            )
+        self.robot = robot
+        self._busy_since = float(self.model.time)
+
+    def finish(self) -> None:
+        """Stop charging and free the spot."""
+        if self.robot is None or self._busy_since is None:
+            raise RuntimeError(f"{self.charger_id} finished with no robot")
+        duration = float(self.model.time) - self._busy_since
+        self._busy_time += duration
+        self.charging_times.append(duration)
+        self._busy_since = None
+        self.robot = None
+        self.reserved_by = None
+
+    def finish_charge(self) -> None:
+        """Event handler: the scheduled charge is complete."""
+        robot = self.robot
+        if robot is None:
+            raise RuntimeError(f"{self.charger_id} finished with no robot")
+        self.finish()
+        self.model.on_charge_finished(robot, self)
+
+    def busy_time(self) -> float:
+        """Seconds spent charging so far, including the session in progress."""
+        if self._busy_since is None:
+            return self._busy_time
+        return self._busy_time + float(self.model.time) - self._busy_since
+
+    def utilisation(self) -> float:
+        now = float(self.model.time)
+        return self.busy_time() / now if now > 0 else 0.0
 
 
 class PickingStation(Agent):

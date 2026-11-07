@@ -10,21 +10,42 @@ SECONDS_PER_HOUR = 3600.0
 class RobotParams:
     """Physical robot parameters shared by the whole fleet.
 
+    ``initial_battery_pct`` is the charge every robot starts a run with; change
+    it here to exercise the charging path without touching individual robots.
+
     Defaults are placeholders until they are calibrated from manufacturer
     documentation and Kiva publications (P7).
     """
 
     speed_m_per_s: float = 1.0
     battery_capacity_pct: float = 100.0
+    initial_battery_pct: float = 100.0
     battery_drain_pct_per_m: float = 0.05
+    charge_threshold_pct: float = 20.0
+    charge_rate_pct_per_s: float = 0.5
 
     def __post_init__(self) -> None:
         if self.speed_m_per_s <= 0:
             raise ValueError("Robot speed must be positive")
         if self.battery_capacity_pct <= 0:
             raise ValueError("Battery capacity must be positive")
+        if not 0 <= self.initial_battery_pct <= self.battery_capacity_pct:
+            raise ValueError(
+                "Initial battery must be between zero and the battery capacity"
+            )
         if self.battery_drain_pct_per_m < 0:
             raise ValueError("Battery drain cannot be negative")
+        if not 0 <= self.charge_threshold_pct < self.battery_capacity_pct:
+            raise ValueError(
+                "Charge threshold must be between zero and the battery capacity"
+            )
+        if self.charge_rate_pct_per_s <= 0:
+            raise ValueError("Charge rate must be positive")
+
+    def charge_duration_s(self, battery_pct: float) -> float:
+        """Seconds needed to charge ``battery_pct`` back to full capacity."""
+        missing = max(0.0, self.battery_capacity_pct - battery_pct)
+        return missing / self.charge_rate_pct_per_s
 
 
 @dataclass(frozen=True, slots=True)

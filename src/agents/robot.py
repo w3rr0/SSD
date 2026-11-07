@@ -66,6 +66,7 @@ class Robot(Agent):
         self._move_progress = 0.0
         self.assigned_task_id: str | None = None
         self.carrying_rack_id: str | None = None
+        self.charger_id: str | None = None
         self._route: Deque[Coordinate] = deque()
         self.blocked = False
         self.blocked_cell: Coordinate | None = None
@@ -125,6 +126,24 @@ class Robot(Agent):
             route = route[1:]
         self._route = deque(route)
         self.model.reset_reservation(self)
+
+    def assign_charger(self, charger_id: str, route: tuple[Coordinate, ...]) -> None:
+        """Leave for ``charger_id``; the charger must already be reserved."""
+        if not self.is_available:
+            raise ValueError(f"Robot {self.robot_id} is already assigned")
+        self.charger_id = charger_id
+        self.yielding = False
+        self.yield_parked_at = None
+        self.yield_wait_since = None
+        self.set_route(route)
+        self.transition(RobotState.TO_CHARGER)
+
+    def finish_charging(self) -> None:
+        """End the charge and become available for work again."""
+        self.charger_id = None
+        self._route.clear()
+        self.model.reset_reservation(self)
+        self.transition(RobotState.IDLE)
 
     def clear_assignment(self) -> None:
         self.assigned_task_id = None

@@ -216,7 +216,11 @@ class Warehouse(Model):
         if len(starts) < num_robots:
             raise ValueError("Layout does not define enough robot start positions")
         return tuple(
-            RobotConfig(robot_id=robot_id, start=position)
+            RobotConfig(
+                robot_id=robot_id,
+                start=position,
+                battery=self.config.robot.initial_battery_pct,
+            )
             for robot_id, position in starts[:num_robots]
         )
 
@@ -265,6 +269,7 @@ class Warehouse(Model):
         """One movement tick (called by Mesa every ``TICK_S`` seconds)."""
         # Orders due at this exact time may be scheduled after the tick event.
         self._release_due_orders()
+        self._send_low_battery_to_charger()
         self._assign_pending_tasks()
 
         standing: list[str] = []
@@ -653,6 +658,10 @@ class Warehouse(Model):
             if robot.carrying_rack_id is None:
                 return None
             return self.return_location(self.racks[robot.carrying_rack_id])
+        if robot.state is RobotState.TO_CHARGER:
+            if robot.charger_id is None:
+                return None
+            return self.layout.chargers[robot.charger_id]
         return None
 
     def _track_progress(self, robot: Robot) -> None:
@@ -703,8 +712,17 @@ class Warehouse(Model):
         return None
 
     def _assign_pending_tasks(self) -> None:
-        """Nearest free robot for each waiting task, oldest order first."""
-        available = [robot for robot in self.robots if robot.is_available]
+        """Nearest free robot for each waiting task, oldest order first.
+
+        Robots that need a charge are held back even when no charger is free
+        yet: a robot below the threshold should not start a trip it may not be
+        able to finish.
+        """
+        available = [
+            robot
+            for robot in self.robots
+            if robot.is_available and not self._needs_charge(robot)
+        ]
         for order in self.released_orders:
             if not available:
                 return
@@ -731,6 +749,75 @@ class Warehouse(Model):
                 rack.reserved_by_task = task.task_id
                 robot.assign_task(task.task_id, route)
                 available.remove(robot)
+
+    def _needs_charge(self, robot: Robot) -> bool:
+        """Whether ``robot`` is below the charge threshold.
+
+        Layouts without chargers keep their robots working; otherwise the
+        threshold would park them forever.
+        """
+        return (
+            bool(self.chargers)
+            and robot.battery <= self.config.robot.charge_threshold_pct
+        )
+
+    def _send_low_battery_to_charger(self) -> None:
+        """Send every idle robot below the threshold to a free charger.
+
+        The check runs between tasks only, so a robot never abandons a pick
+        halfway. The charger is reserved before the robot leaves, which keeps
+        two robots from targeting the same spot.
+        """
+        for robot in self.robots:
+            if not robot.is_available or not self._needs_charge(robot):
+                continue
+            choice = self._charger_route(robot)
+            if choice is None:
+                continue
+            charger, route = choice
+            charger.reserve(robot.robot_id)
+            robot.assign_charger(charger.charger_id, route)
+
+    def _charger_route(
+        self, robot: Robot
+    ) -> tuple[Charger, tuple[Coordinate, ...]] | None:
+        """Nearest free charger the robot can actually reach."""
+        free = sorted(
+            (charger for charger in self.chargers.values() if charger.is_free),
+            key=lambda charger: (
+                self._manhattan(robot.pos, self.layout.chargers[charger.charger_id]),
+                natural_key(charger.charger_id),
+            ),
+        )
+        for charger in free:
+            try:
+                route = self._route(
+                    robot.pos, self.layout.chargers[charger.charger_id]
+                )
+            except NoPathError:
+                continue
+            return charger, route
+        return None
+
+    def _arrive_at_charger(self, robot: Robot) -> None:
+        """Start charging; the end of the charge is a scheduled event."""
+        if robot.charger_id is None:
+            raise RuntimeError(f"Robot {robot.robot_id} arrived without a charger")
+        charger = self.chargers[robot.charger_id]
+        position = self.layout.chargers[charger.charger_id]
+        if robot.pos != position:
+            # A yield detour can end away from the charger; drive back first.
+            robot.set_route(self._route(robot.pos, position))
+            return
+        robot.transition(RobotState.CHARGING)
+        charger.occupy(robot)
+        duration = self.config.robot.charge_duration_s(robot.battery)
+        self.schedule_event(charger.finish_charge, after=duration)
+
+    def on_charge_finished(self, robot: Robot, charger: Charger) -> None:
+        """Event handler: the charger brought ``robot`` back to full."""
+        robot.battery = self.config.robot.battery_capacity_pct
+        robot.finish_charging()
 
     def _obstacles(self) -> set[Coordinate]:
         """Cells blocked right now: standing racks, stations and chargers."""
@@ -759,6 +846,8 @@ class Warehouse(Model):
             self._arrive_at_station(robot)
         elif robot.state is RobotState.RETURNING_RACK:
             self._put_down_rack(robot)
+        elif robot.state is RobotState.TO_CHARGER:
+            self._arrive_at_charger(robot)
 
     def _pick_up_rack(self, robot: Robot) -> None:
         task = self.tasks_by_id[robot.assigned_task_id]
@@ -836,6 +925,18 @@ class Warehouse(Model):
                 for wait in station.wait_times
             ],
             traffic_wait_times=[robot.traffic_wait_s for robot in self.robots],
+            charger_utilisation={
+                charger_id: charger.utilisation()
+                for charger_id, charger in self.chargers.items()
+            },
+            charging_times=[
+                duration
+                for charger in self.chargers.values()
+                for duration in charger.charging_times
+            ],
+            total_charging_time_s=sum(
+                charger.busy_time() for charger in self.chargers.values()
+            ),
         )
 
     def run_until_complete(self, max_time: float = 36_000.0) -> SimulationMetrics:
