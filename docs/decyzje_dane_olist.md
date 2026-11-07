@@ -1,4 +1,4 @@
-# Dane Olist, generator zamówień i walidacja: problemy i decyzje
+# Dane Olist, generator zamówień, walidacja i rozmieszczenie: problemy i decyzje
 
 Ten plik zbiera decyzje podjęte przy kalibracji symulacji na danych Olist:
 co było problemem, jakie były opcje, co wybraliśmy i dlaczego. Liczby
@@ -18,6 +18,7 @@ Pliki, których to dotyczy:
 | `src/validation/queueing.py` | wzór z teorii kolejek i przedział ufności |
 | `tests/test_queueing.py` | walidacja kolejki: samo stanowisko vs wzór |
 | `runners/queue_validation.py` | walidacja kolejki: cały magazyn vs wzór (`make queue_validation`) |
+| `src/strategies/placement.py` | rozmieszczenie produktów: losowe, ABC, powrót na najbliższe wolne miejsce |
 
 ## 1. Dane i narzędzia
 
@@ -316,8 +317,78 @@ Część B (cały magazyn):
   (przy 8 przebiegach po 80 000 s: 120 ± 25 s), ale dalsze wydłużanie
   zajmuje zbyt dużo czasu.
 
+## 7. Rozmieszczenie produktów
+
+Opis wymienia trzy sposoby: losowe, ABC według częstości zamówień
+(najpopularniejsze najbliżej stanowisk) oraz odkładanie regału po każdym
+kursie na najbliższe wolne miejsce przy stanowisku.
+
+Model ma na to dwa miejsca: parametr `rack_skus` (który produkt na którym
+regale) i metodę `return_location(rack)` (gdzie odstawić regał po
+kompletacji). Losowe i ABC wypełniają `rack_skus`. Powrót na najbliższe wolne
+miejsce to klasa `NearestFreeSlot`, którą podpina się w `return_location`.
+
+### Więcej produktów niż regałów
+- **Problem:** w 2017 jest 17 159 produktów, a układ ma rzędu 160 regałów.
+- **Opcje:** A) każdy produkt na dokładnie jednym regale, czyli ok. 100
+  produktów na regał, B) tylko N najpopularniejszych produktów, po jednym na
+  regał, a resztę zamówień wyrzucamy.
+- **Decyzja:** A. Na każdym regale jest tyle samo produktów (ostatnie regały
+  mogą mieć mniej).
+- **Powód:** każde zamówienie z generatora da się obsłużyć, a prawdziwe regały
+  Kiva też trzymają setki produktów w przegródkach. B wyrzuciłoby większość
+  zamówień.
+
+### Losowe
+Produkty tasujemy (z seedem, więc da się to powtórzyć) i rozdajemy po równo
+na regały.
+
+### ABC
+- **Opcje:** A) klasyczne trzy klasy, B) pełny ranking (najpopularniejszy
+  produkt na najbliższy regał, drugi obok…).
+- **Decyzja:** A. Klasa A to produkty, które razem dają 80% zamówień, B
+  kolejne 15%, C reszta. A trafia na regały najbliżej stanowisk, potem B,
+  potem C. Wewnątrz klasy kolejność jest losowa.
+- **Powód:** to jest ABC w znaczeniu logistycznym. Progi 80/15/5 są umowne,
+  ale standardowe.
+- **Co wyszło na danych 2017:** klasa A to aż 7 937 produktów (46%), B 6 916
+  (40%), C 2 306 (13%). Popularność w Olist jest „płaska” (długi ogon), więc
+  80% zamówień wymaga prawie połowy produktów. Przez to ABC może dać mniejszy
+  zysk niż w sklepie z kilkoma hitami.
+
+### Odległość od stanowiska
+- **Opcje:** A) odległość Manhattan (kratki poziomo + pionowo) do
+  najbliższego stanowiska, B) prawdziwa długość trasy po alejkach.
+- **Decyzja:** A.
+- **Powód:** tak samo liczy model przy wyborze regału, a w układzie z alejką
+  przy każdym regale różnica jest mała.
+
+### Powrót na najbliższe wolne miejsce
+- „Miejsca” to pozycje regałów z układu. Miejsce jest wolne, gdy nie stoi na
+  nim regał i żaden inny wracający regał nie ma go zarezerwowanego.
+- Regał wraca na wolne miejsce najbliższe stanowisku, przy którym był
+  kompletowany. Remis rozstrzyga pozycja.
+- Wybrane miejsce jest od razu rezerwowane, żeby dwa roboty nie jechały na
+  to samo.
+- Wolne miejsce zawsze istnieje: miejsc jest tyle co regałów, a wracający
+  regał zwolnił swoje.
+- **Opcje:** A) to osobny przełącznik, łączony z losowym albo ABC,
+  B) zawsze start od losowego.
+- **Decyzja:** A. W scenariuszach domyślnie „losowe + powrót na najbliższe”.
+- **Powód:** wtedy widać, czy magazyn sam „uczy się” dobrego układu.
+- Podpięcie w modelu (metoda `return_location`) należy do pliku modelu, więc
+  robi je osoba odpowiedzialna za model. W testach używamy podklasy modelu.
+
+### Sprawdzenie
+Testy sprawdzają, że każdy produkt leży na dokładnie jednym regale, klasy ABC
+liczą się zgodnie z progami, klasa A stoi bliżej niż B, a B bliżej niż C,
+a przy powrocie regał wybiera najbliższe wolne miejsce i dwa regały nigdy nie
+stoją na jednym polu. Krótki przebieg na prawdziwych danych (4 h zamówień
+z Olist, ruch ×5, 8 robotów, 160 regałów) działa: przy ABC roboty przejechały
+4,7 km zamiast 5,9 km przy losowym, a średni czas realizacji spadł z 41 s do
+36 s. To tylko sprawdzenie, że całość działa, a nie wynik eksperymentu.
+
 ## Sprawy otwarte
 - Czym są „pilne zamówienia” w scenariuszu awarii, skoro prawdziwe terminy to
   kilka dni.
-- Produkty z Olist trafią do symulacji dopiero po rozmieszczeniu ich na
-  regałach (model przyjmuje tylko produkty, które leżą na regałach).
+- Podpięcie `NearestFreeSlot` w `return_location` modelu.
