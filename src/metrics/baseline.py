@@ -22,6 +22,10 @@ class SimulationMetrics:
     which part of the fleet's capacity was lost to jams and to station queues.
     ``average_traffic_wait_s`` is per robot, while ``average_station_wait`` is
     per station visit.
+
+    ``charger_utilisation`` is the share of the run each charger spent
+    charging; ``average_charging_time`` is the mean length of a completed
+    session.
     """
 
     completed_orders: int
@@ -38,6 +42,9 @@ class SimulationMetrics:
     traffic_wait_share: float | None = None
     total_queue_wait_s: float = 0.0
     queue_wait_share: float | None = None
+    charger_utilisation: dict[str, float] = field(default_factory=dict)
+    total_charging_time_s: float = 0.0
+    average_charging_time: float | None = None
 
     @classmethod
     def from_orders(
@@ -48,9 +55,13 @@ class SimulationMetrics:
         station_utilisation: dict[str, float] | None = None,
         station_wait_times: Iterable[float] = (),
         traffic_wait_times: Iterable[float] = (),
+        charger_utilisation: dict[str, float] | None = None,
+        charging_times: Iterable[float] = (),
+        total_charging_time_s: float | None = None,
     ) -> SimulationMetrics:
         station_wait_times = list(station_wait_times)
         traffic_wait_times = list(traffic_wait_times)
+        charging_times = list(charging_times)
         completed = [order for order in orders if order.completion_time is not None]
         durations = [order.completion_time for order in completed]
         waits = [order.waiting_time for order in completed]
@@ -83,5 +94,14 @@ class SimulationMetrics:
             total_queue_wait_s=total_queue_wait,
             queue_wait_share=(
                 total_queue_wait / robot_time if robot_time > 0 else None
+            ),
+            charger_utilisation=dict(charger_utilisation or {}),
+            total_charging_time_s=(
+                sum(charging_times)
+                if total_charging_time_s is None
+                else total_charging_time_s
+            ),
+            average_charging_time=(
+                mean(charging_times) if charging_times else None
             ),
         )
