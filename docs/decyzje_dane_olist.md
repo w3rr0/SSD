@@ -1,4 +1,4 @@
-# Dane Olist, generator zamówień, walidacja i rozmieszczenie: problemy i decyzje
+# Dane Olist, generator zamówień, walidacja, rozmieszczenie i parametry robota: problemy i decyzje
 
 Ten plik zbiera decyzje podjęte przy kalibracji symulacji na danych Olist:
 co było problemem, jakie były opcje, co wybraliśmy i dlaczego. Liczby
@@ -19,6 +19,8 @@ Pliki, których to dotyczy:
 | `tests/test_queueing.py` | walidacja kolejki: samo stanowisko vs wzór |
 | `runners/queue_validation.py` | walidacja kolejki: cały magazyn vs wzór (`make queue_validation`) |
 | `src/strategies/placement.py` | rozmieszczenie produktów: losowe, ABC, powrót na najbliższe wolne miejsce |
+| `src/core/config.py` | parametry robota i kompletacji |
+| `docs/zrodla_parametry_robota.md` | źródła tych parametrów z cytatami |
 
 ## 1. Dane i narzędzia
 
@@ -388,7 +390,54 @@ z Olist, ruch ×5, 8 robotów, 160 regałów) działa: przy ABC roboty przejecha
 4,7 km zamiast 5,9 km przy losowym, a średni czas realizacji spadł z 41 s do
 36 s. To tylko sprawdzenie, że całość działa, a nie wynik eksperymentu.
 
+## 8. Parametry robota
+
+Opis każe wziąć parametry z dokumentacji i publikacji o Kiva. Wcześniej model
+miał wartości zastępcze bez źródła (1 m/s, 0,05% baterii na metr, kompletacja
+5 s + 10 s na sztukę). Pełna lista źródeł z cytatami jest w
+`docs/zrodla_parametry_robota.md`.
+
+### Jaki robot
+- **Problem:** Amazon nie publikuje specyfikacji robotów, a inni producenci
+  (np. ogólne roboty mobilne) mają pełne karty katalogowe.
+- **Opcje:** A) tylko źródła o Kiva, B) karta innego robota.
+- **Decyzja:** A.
+- **Powód:** opis projektu mówi o Kiva. Inne roboty nie podnoszą regałów
+  i mają inne wymiary, więc nie pasują do siatki 1 m.
+
+### Prędkość
+- **Decyzja:** 1,3 m/s.
+- **Powód:** trzy niezależne źródła podają to samo (IEEE, RobotsGuide,
+  MWPVL).
+
+### Kompletacja
+- **Opcje:** A) 0 s stałe + 6 s na sztukę, B) zostawić 5 s + 10 s.
+- **Decyzja:** A.
+- **Powód:** twórcy Kiva podają 600 linii na godzinę, czyli 6 s na linię.
+  W Olist prawie każda linia to jedna sztuka. Stare wartości nie miały
+  źródła.
+- **Uwaga:** 600 linii/h to tempo w dobrych warunkach. Wolniejsze warianty
+  sprawdzamy w analizie wrażliwości.
+
+### Bateria
+- **Opcje:** A) ok. 2 h ciągłej jazdy (0,0107% na metr), B) zostawić 0,05%.
+- **Decyzja:** A.
+- **Powód:** MWPVL pisze, że roboty jadą do ładowarki „co kilka godzin”.
+  To jedyne źródło, więc sprawdzamy też 1 h i 4 h.
+- Czas ładowania (5 min) jest zapisany w źródłach, ale model nie ma jeszcze
+  ładowania.
+
+### Czego nie modelujemy
+Przyspieszenia i czasu podnoszenia regału, bo źródła ich nie podają.
+
+### Analiza wrażliwości
+- **Decyzja:** robimy ją razem ze scenariuszami (prędkość 1,0 / 1,3 / 1,5;
+  kompletacja 200 / 400 / 600 / 700 linii/h; bateria 1 / 2 / 4 h).
+- **Powód:** scenariusze i tak uruchamiają wiele wariantów, a tu chodzi
+  o te same przebiegi.
+
 ## Sprawy otwarte
 - Czym są „pilne zamówienia” w scenariuszu awarii, skoro prawdziwe terminy to
   kilka dni.
 - Podpięcie `NearestFreeSlot` w `return_location` modelu.
+- Ładowanie baterii w modelu (czas ładowania 5 min wg MWPVL).

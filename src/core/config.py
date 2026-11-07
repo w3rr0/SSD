@@ -10,13 +10,16 @@ SECONDS_PER_HOUR = 3600.0
 class RobotParams:
     """Physical robot parameters shared by the whole fleet.
 
-    Defaults are placeholders until they are calibrated from manufacturer
-    documentation and Kiva publications (P7).
+    Defaults come from Kiva publications; sources and conversions are listed
+    in ``docs/zrodla_parametry_robota.md``.
     """
 
-    speed_m_per_s: float = 1.0
+    # IEEE Spectrum 2008: "travel at 1.3 meters per second".
+    speed_m_per_s: float = 1.3
     battery_capacity_pct: float = 100.0
-    battery_drain_pct_per_m: float = 0.05
+    # MWPVL 2012: robots charge "every couple of hours". Assuming 2 h of
+    # continuous driving at 1.3 m/s: 100 % / 9360 m.
+    battery_drain_pct_per_m: float = 100.0 / (2 * SECONDS_PER_HOUR * 1.3)
 
     def __post_init__(self) -> None:
         if self.speed_m_per_s <= 0:
@@ -37,8 +40,10 @@ class PickingParams:
     ``"deterministic"`` it is exactly the mean (M/D/1).
     """
 
-    fixed_s: float = 5.0
-    per_item_s: float = 10.0
+    # Wurman et al. 2007: "a new pod face every six seconds ... 600 lines
+    # per hour". One unit is treated as one line.
+    fixed_s: float = 0.0
+    per_item_s: float = 6.0
     distribution: Literal["deterministic", "exponential"] = "deterministic"
 
     def __post_init__(self) -> None:

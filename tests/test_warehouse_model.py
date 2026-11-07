@@ -111,7 +111,10 @@ class WarehouseModelTests(unittest.TestCase):
             ),
         )
         fast = Warehouse(
-            layout=self.layout, config=SimulationConfig(picking=no_picking)
+            layout=self.layout,
+            config=SimulationConfig(
+                robot=RobotParams(speed_m_per_s=1.0), picking=no_picking
+            ),
         )
 
         slow_metrics = slow.run_until_complete()
