@@ -73,6 +73,7 @@ class Robot(Agent):
         self.robot_id = config.robot_id
         self.battery = config.battery
         self.distance_travelled_m = 0.0
+        self.return_distance_m = 0.0
         self.traffic_wait_s = 0.0
         self._move_progress = 0.0
         self.assigned_task_id: str | None = None
@@ -290,6 +291,8 @@ class Robot(Agent):
             )
             self._move_progress -= 1.0
             self.distance_travelled_m += config.cell_size_m
+            if self.state is RobotState.RETURNING_RACK:
+                self.return_distance_m += config.cell_size_m
             self.battery = max(
                 0.0,
                 self.battery

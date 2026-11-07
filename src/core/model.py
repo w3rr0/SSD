@@ -141,6 +141,8 @@ class Warehouse(Model):
         self.failure_count = 0
         self.repair_times: list[float] = []
         self._failed_at: dict[str, float] = {}
+        self.return_trips = 0
+        self.racks_returned_home = 0
         if orders is None:
             orders = self._default_orders(num_orders)
         for order in orders:
@@ -1044,6 +1046,9 @@ class Warehouse(Model):
 
     def _put_down_rack(self, robot: Robot) -> None:
         rack = self.racks[robot.carrying_rack_id]
+        self.return_trips += 1
+        if rack.pos == rack.home:
+            self.racks_returned_home += 1
         rack.carried_by = None
         rack.reserved_by_task = None
         robot.clear_assignment()
@@ -1058,6 +1063,18 @@ class Warehouse(Model):
     @staticmethod
     def _manhattan(first: Coordinate, second: Coordinate) -> int:
         return abs(first[0] - second[0]) + abs(first[1] - second[1])
+
+    def _rack_slot_utilisation(self) -> float:
+        """Share of the original rack slots with a standing rack in them."""
+        slots = set(self.layout.racks.values())
+        if not slots:
+            return 0.0
+        occupied = {
+            rack.pos
+            for rack in self.racks.values()
+            if rack.carried_by is None and rack.pos in slots
+        }
+        return len(occupied) / len(slots)
 
     @property
     def metrics(self) -> SimulationMetrics:
@@ -1096,6 +1113,12 @@ class Warehouse(Model):
                     for failed_at in self._failed_at.values()
                 )
             ),
+            total_return_distance_m=sum(
+                robot.return_distance_m for robot in self.robots
+            ),
+            return_trips=self.return_trips,
+            racks_returned_home=self.racks_returned_home,
+            rack_slot_utilisation=self._rack_slot_utilisation(),
         )
 
     def run_until_complete(self, max_time: float = 36_000.0) -> SimulationMetrics:
