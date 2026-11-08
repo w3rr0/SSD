@@ -33,6 +33,7 @@ def charging_config(
     return SimulationConfig(
         robot=RobotParams(
             initial_battery_pct=initial_battery,
+            battery_drain_pct_per_m=0.05,
             charge_threshold_pct=threshold,
             charge_rate_pct_per_s=rate,
         )

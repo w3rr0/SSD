@@ -6,3 +6,9 @@ graphify-out/
 
 # IDE
 .idea/
+
+# Data
+data/raw/
+
+# Generated plots and results
+output/
