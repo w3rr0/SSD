@@ -25,7 +25,9 @@ class RobotParams:
     # continuous driving at 1.3 m/s: 100 % / 9360 m.
     battery_drain_pct_per_m: float = 100.0 / (2 * SECONDS_PER_HOUR * 1.3)
     charge_threshold_pct: float = 20.0
-    charge_rate_pct_per_s: float = 0.5
+    # MWPVL 2012: "a 5-minute battery re-charge", taken as threshold -> full:
+    # 80 % in 300 s.
+    charge_rate_pct_per_s: float = (100.0 - 20.0) / 300.0
 
     def __post_init__(self) -> None:
         if self.speed_m_per_s <= 0:

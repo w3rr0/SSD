@@ -425,8 +425,7 @@ miał wartości zastępcze bez źródła (1 m/s, 0,05% baterii na metr, kompleta
 - **Decyzja:** A.
 - **Powód:** MWPVL pisze, że roboty jadą do ładowarki „co kilka godzin”.
   To jedyne źródło, więc sprawdzamy też 1 h i 4 h.
-- Czas ładowania (5 min) jest zapisany w źródłach, ale model nie ma jeszcze
-  ładowania.
+- Ładowanie: 5 min od progu 20% do pełna, czyli 0,27% na sekundę.
 
 ### Czego nie modelujemy
 Przyspieszenia i czasu podnoszenia regału, bo źródła ich nie podają.
@@ -441,4 +440,3 @@ Przyspieszenia i czasu podnoszenia regału, bo źródła ich nie podają.
 - Czym są „pilne zamówienia” w scenariuszu awarii, skoro prawdziwe terminy to
   kilka dni.
 - Podpięcie `NearestFreeSlot` w `return_location` modelu.
-- Ładowanie baterii w modelu (czas ładowania 5 min wg MWPVL).

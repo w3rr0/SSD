@@ -68,8 +68,15 @@ Zastrzeżenia:
 - „Co kilka godzin” to czas pracy, a nie samej jazdy. Robot część czasu stoi
   (przy stanowisku, w kolejce), więc w symulacji będzie jeździł do ładowarki
   rzadziej niż co 2 h. Dlatego sprawdzamy 1, 2 i 4 h w analizie wrażliwości.
-- Czas ładowania (5 min) zapisujemy tutaj, ale model nie ma jeszcze logiki
-  ładowania, więc na razie nigdzie go nie wpisujemy.
+
+## Ładowanie: 0,27% na sekundę
+
+Cytat jak wyżej: „a 5-minute battery re-charge”. Model ładuje robota od
+progu (`charge_threshold_pct`, 20%) do pełna. Przyjmujemy, że 5 minut to
+właśnie to ładowanie: 80% / 300 s ≈ 0,27% na sekundę.
+
+Zastrzeżenie: źródło nie mówi, od jakiego poziomu baterii liczy się te
+5 minut. Próg 20% nie pochodzi ze źródeł, tylko z modelu.
 
 ## Czego źródła nie podają
 
