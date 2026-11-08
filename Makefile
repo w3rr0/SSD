@@ -21,3 +21,6 @@ queue_validation:
 
 run_visual_olist:
 	uv run runners/run_visual_olist.py
+
+scenarios:
+	uv run runners/run_scenarios.py

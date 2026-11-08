@@ -21,6 +21,9 @@ Pliki, których to dotyczy:
 | `src/strategies/placement.py` | rozmieszczenie produktów: losowe, ABC, powrót na najbliższe wolne miejsce |
 | `src/core/config.py` | parametry robota i kompletacji |
 | `docs/zrodla_parametry_robota.md` | źródła tych parametrów z cytatami |
+| `src/experiments/scenarios.py` | definicje scenariuszy, jeden przebieg, podsumowanie z przedziałami ufności |
+| `runners/run_scenarios.py` | uruchamia scenariusze z powtórzeniami (`make scenarios`) |
+| `tests/test_scenarios.py` | testy runnera scenariuszy |
 
 ## 1. Dane i narzędzia
 
@@ -458,8 +461,10 @@ z powtórzeniami. Poniżej decyzje dotyczące tego, jak liczy.
 - **Decyzja:** B. Zwykły dzień to profil Olist razy k, szczyt to razy 9,5k.
   k dobieramy tak, żeby w najruchliwszej godzinie dnia szczytowego
   stanowiska układu odniesienia (2 stanowiska) były obciążone w ok. 85%.
-  Z szacunku k ≈ 10, a dokładną wartość liczymy w pilotażu z czasu
-  kompletacji zmierzonego w symulacji.
+  Wychodzi k = 9,5: najruchliwsza godzina profilu ma 9,88 zamówienia,
+  zamówienie ma średnio 1,14 sztuki po 6 s, więc
+  0,85 · 2 · 3600 / (9,88 · 9,5 · 1,14 · 6) ≈ 9,5. Kompletacja w modelu jest
+  stała, więc pilotaż nie zmienia tej liczby.
 - **Powód:** magazyny wymiaruje się na szczyt, więc to standardowa reguła,
   a nie dowolna liczba. Kształt dnia, proporcja szczyt/zwykły dzień,
   koszyk i popularność zostają z danych. A daje płaskie wyniki. C sprawia,
@@ -575,6 +580,24 @@ z powtórzeniami. Poniżej decyzje dotyczące tego, jak liczy.
   bez nowej zależności, łatwy do przeczytania.
 - Metryki odczytujemy ze wszystkich pól `SimulationMetrics`, więc nowe
   metryki modelu pojawią się w wynikach same.
+
+### Pilotaż (3 seedy na scenariusz, 174 przebiegi)
+- **Czas:** jedna doba liczy się średnio 18 s (najdłużej 77 s), więc
+  okno 09:00–24:00 nie jest potrzebne. 10 seedów dla wszystkich grup to
+  ok. 45 minut na 4 procesach.
+- **Nieudane:** 130 ze 174. Wszystkie przebiegi w szczycie (S1, S3, S5, S6)
+  kończą się zakleszczeniem, w zwykły dzień udaje się ok. połowa (S1 53%,
+  S5 83%). 127 razy `DeadlockError`, 3 razy `TimeoutError`.
+- **Drugi rodzaj zatoru:** `TimeoutError` przy 2 robotach to nie brak
+  robotów. Dwa roboty przy stanowiskach przez kilka godzin przesuwają się
+  tam i z powrotem (stan `to_station`), więc model nie wykrywa
+  zakleszczenia, a bateria spada do zera. Zgłoszone osobie odpowiedzialnej
+  za model razem z zakleszczeniem.
+- **Co już widać w zwykły dzień** (tylko udane przebiegi, za mało, żeby
+  wnioskować): ABC skraca dystans o ok. 20–25% i średni czas realizacji
+  o ok. 15% wobec losowego; stanowiska są zajęte średnio w ok. 5% doby.
+- **Wniosek:** runner działa, ale wyników scenariuszy nie liczymy, dopóki
+  zakleszczenie nie jest rozwiązane w modelu.
 
 ## Sprawy otwarte
 - Czym są „pilne zamówienia” w scenariuszu awarii, skoro prawdziwe terminy to
