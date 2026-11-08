@@ -436,7 +436,149 @@ Przyspieszenia i czasu podnoszenia regału, bo źródła ich nie podają.
 - **Powód:** scenariusze i tak uruchamiają wiele wariantów, a tu chodzi
   o te same przebiegi.
 
+## 9. Scenariusze
+
+Opis projektu wymienia scenariusze: różna liczba robotów dla każdego
+rozmieszczenia, zwykły dzień i szczyt zamówień, liczba ładowarek
+i stanowisk, wpływ awarii na pilne zamówienia. Do tego dochodzi analiza
+wrażliwości parametrów robota (sekcja 8). Wszystkie liczy jeden runner
+z powtórzeniami. Poniżej decyzje dotyczące tego, jak liczy.
+
+### Skala obciążenia
+- **Problem:** przy prawdziwej skali Olist magazyn jest prawie pusty.
+  Średnie zamówienie ma 1,04 pozycji i 1,14 sztuki, czyli ok. 7 s
+  kompletacji. Najruchliwsza godzina profilu (poniedziałek 21:00) ma ok. 10
+  zamówień, a w szczycie (×9,5) ok. 94. To ok. 18% czasu jednego stanowiska
+  i średnio niecałe 2 zajęte roboty. Liczba robotów, stanowisk i ładowarek
+  nie miałaby wpływu na wynik, więc scenariusze z opisu nie dałyby
+  odpowiedzi.
+- **Opcje:** A) prawdziwa skala (×1 i ×9,5), B) mnożnik bazowy k dobrany
+  do szczytu, C) mnożnik dobrany do zwykłego dnia, przy którym szczyt jest
+  przeciążeniem, D) mniejszy magazyn.
+- **Decyzja:** B. Zwykły dzień to profil Olist razy k, szczyt to razy 9,5k.
+  k dobieramy tak, żeby w najruchliwszej godzinie dnia szczytowego
+  stanowiska układu odniesienia (2 stanowiska) były obciążone w ok. 85%.
+  Z szacunku k ≈ 10, a dokładną wartość liczymy w pilotażu z czasu
+  kompletacji zmierzonego w symulacji.
+- **Powód:** magazyny wymiaruje się na szczyt, więc to standardowa reguła,
+  a nie dowolna liczba. Kształt dnia, proporcja szczyt/zwykły dzień,
+  koszyk i popularność zostają z danych. A daje płaskie wyniki. C sprawia,
+  że w szczycie kolejka rośnie przez cały dzień, a czas realizacji zależy
+  od długości symulacji. D nie pomaga, bo jedno stanowisko obsłuży ok. 500
+  zamówień na godzinę, a szczyt Olist to 94.
+- **Konsekwencja:** k to założenie modelu i opisujemy je przy wynikach.
+
+### Lista scenariuszy
+- **Układ odniesienia:** `WarehouseLayout.generate` (160 regałów,
+  2 stanowiska, 2 ładowarki), parametry robota z sekcji 8, przydział
+  „najbliższy wolny robot”, awarie wyłączone.
+- **S1, liczba robotów × rozmieszczenie:** losowe, ABC, losowe + powrót na
+  najbliższe wolne miejsce. Siatkę liczby robotów ustalamy po pilotażu.
+- **S2, zwykły dzień i szczyt:** każda kombinacja z S1 w obu dniach.
+- **S3, stanowiska i ładowarki:** 1–4 stanowiska i 1–4 ładowarki, zmieniane
+  po jednym, w szczycie, przy liczbie robotów z „kolana” krzywej S1
+  (najmniejsza liczba, przy której czas realizacji przestaje wyraźnie
+  spadać).
+- **S4, awarie a pilne zamówienia:** model ma już awarie (`FailureParams`)
+  i pole `Order.urgent`. Liczymy po ustaleniu, które zamówienia są pilne
+  (sprawy otwarte).
+- **S5, wrażliwość:** prędkość 1,0 / 1,5 m/s, kompletacja 200 / 400 /
+  700 linii/h, bateria 1 / 4 h, zmieniane po jednym wokół wartości
+  z sekcji 8, w zwykły dzień i w szczycie.
+- **S6, przydział zadań:** „najbliższy wolny robot” i „termin + bateria”
+  (`AssignmentParams`), w szczycie. Opis projektu wymienia oba sposoby,
+  a cel projektu to wpływ sposobu sterowania robotami.
+- **Zmiana po jednym parametrze zamiast pełnej siatki (S3, S5):** pełna
+  siatka to 16 wariantów w S3 i 36 w S5 zamiast 7. Przy pojedynczych
+  zmianach od razu widać, który parametr działa.
+- **Uwaga do S5:** przy skali B kompletacja 200 i 400 linii/h przeciąża
+  stanowiska w szczycie. Te warianty pokazują przeciążenie, a nie samą
+  wrażliwość, i tak je opisujemy.
+- **Powrót na najbliższe wolne miejsce:** runner używa podklasy modelu
+  z własnym `return_location`, tak jak `runners/run_visual_olist.py`, bez
+  zmian w pliku modelu.
+
+### Jeden przebieg
+- **Dzień tygodnia.** Opcje: A) zawsze poniedziałek, B) losowy dzień.
+  Decyzja: A. Powód: poniedziałek jest najruchliwszy (śr. 139 zamówień,
+  sobota 96), a magazyn wymiaruje się na trudne dni. Zwykły dzień i szczyt
+  różnią się wtedy tylko wolumenem, a zmienność między powtórzeniami jest
+  mniejsza.
+- **Długość.** Opcje: A) cała doba 00:00–24:00, a potem dokończenie
+  zamówień z limitem, B) okno 09:00–24:00 (ok. 90% zamówień dnia).
+  Decyzja: A, a B tylko wtedy, gdy pilotaż pokaże, że doba liczy się za
+  długo. Powód: pełny kształt dnia, a noc z małym ruchem działa jak
+  naturalny rozbieg.
+- **Bez odrzucania rozbiegu.** To symulacja kończąca się (jeden dzień
+  pracy), a nie stan ustalony jak przy walidacji kolejki w sekcji 6. Każde
+  powtórzenie to osobny dzień.
+- `run_until_complete` ma domyślny limit 36 000 s, więc runner podaje
+  własny (doba + dokończenie).
+
+### Powtórzenia i seedy
+- **Liczba powtórzeń.** Opcje: A) stałe 10, B) stałe 20, C) pilotaż
+  10 powtórzeń, a potem liczba ze wzoru n ≈ (t · s / (ε · średnia))²
+  dla celu ±5% średniego czasu realizacji. Decyzja: C. Powód: liczba
+  wynika z danych, a nie z przyzwyczajenia.
+- **Wspólne liczby losowe.** Każdy scenariusz dostaje te same seedy 1…n.
+  Z jednego seeda powstają trzy niezależne strumienie
+  (`numpy.random.SeedSequence.spawn`): zamówienia, rozmieszczenie
+  produktów i model. Powód: np. 8 i 12 robotów dostaje dokładnie te same
+  zamówienia, więc różnica w wyniku pochodzi z konfiguracji, a nie
+  z losowania. To pozwala porównywać scenariusze w parach.
+
+### Metryki
+- Z opisu projektu: średni i najdłuższy czas realizacji, zamówienia na
+  godzinę, czas stania w korkach i w kolejkach, wykorzystanie stanowisk
+  i ładowarek. Do kontroli: liczba zamówień wygenerowanych, ukończonych
+  i nieukończonych, przejechany dystans, status przebiegu i czas obliczeń.
+- **Zamówienia na godzinę.** Opcje: A) ukończone w oknie dnia / liczba
+  godzin dnia, B) ukończone / cały czas symulacji z dokończeniem.
+  Decyzja: A, a do tego liczba nieukończonych na koniec dnia. Powód: B
+  zależy od limitu dokończenia, a przy przeciążeniu problem pokazuje
+  liczba nieukończonych.
+- **Najdłuższy czas realizacji** to jedna wartość na przebieg, więc mocno
+  skacze. Raportujemy średnią z maksimów z przedziałem ufności. Percentyla
+  nie dodajemy, bo nie ma go w opisie projektu.
+
+### Przedziały ufności
+- Dla każdego scenariusza i metryki: średnia z powtórzeń i 95% przedział
+  t-Studenta (`confidence_interval` z `src/validation/queueing.py`).
+- Do porównań: przedział dla różnicy w parach (dla każdego seeda różnica
+  wyników, potem średnia i przedział t). Dzięki wspólnym seedom jest
+  zwykle dużo węższy niż porównanie dwóch osobnych przedziałów.
+
+### Przebiegi nieudane
+- **Problem:** część przebiegów kończy się `DeadlockError` (zakleszczenie),
+  `TimeoutError` (limit dokończenia) albo innym wyjątkiem (błąd w kodzie).
+- **Opcje:** A) oznaczyć jako nieudany i pominąć w średnich, B) dolosować
+  nowy seed, aż będzie n udanych, C) liczyć nieudany jako najgorszy wynik.
+- **Decyzja:** A. Udział nieudanych to osobna kolumna („udane 9/10”),
+  a scenariusz z ponad 10% nieudanych jest oznaczony jako niewiarygodny.
+  W porównaniach w parach bierzemy tylko seedy udane w obu scenariuszach.
+  Zakleszczenie i limit czasu to „nieudany”, a inny wyjątek to „błąd”,
+  zapisany z komunikatem. Metryki do chwili błędu zapisujemy tylko do
+  wglądu.
+- **Powód:** nic nie znika z wyników. B ukrywa ten sam problem i psuje
+  wspólne seedy, C wymaga wymyślonej liczby.
+- **Znane skrzywienie:** pominięte są akurat przebiegi z największym
+  tłokiem, więc średnie dla dużych flot wychodzą trochę za dobre.
+
+### Wyniki i uruchamianie
+- `output/scenarios/runs.csv`: jeden wiersz na przebieg; `summary.csv`
+  i `summary.md`: tabela zbiorcza. `output/` jest w `.gitignore`.
+- Przebieg już zapisany (ten sam scenariusz i seed) jest pomijany, więc
+  przerwane liczenie da się dokończyć. Przebiegi liczą się w kilku
+  procesach naraz.
+- **Gdzie definicje scenariuszy.** Opcje: A) lista w kodzie Pythona,
+  B) YAML w `config/`, C) TOML w `config/`. Decyzja: A. Powód: jeden plik,
+  bez nowej zależności, łatwy do przeczytania.
+- Metryki odczytujemy ze wszystkich pól `SimulationMetrics`, więc nowe
+  metryki modelu pojawią się w wynikach same.
+
 ## Sprawy otwarte
 - Czym są „pilne zamówienia” w scenariuszu awarii, skoro prawdziwe terminy to
-  kilka dni.
-- Podpięcie `NearestFreeSlot` w `return_location` modelu.
+  kilka dni. Model ma pole `Order.urgent`; stary generator oznacza losowy
+  udział zamówień (`urgent_share`), a generator Olist jeszcze go nie ustawia.
+- Podpięcie `NearestFreeSlot` w `return_location` modelu (runner i wizualizacja
+  na razie używają podklasy modelu).
