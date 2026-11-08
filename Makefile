@@ -1,5 +1,11 @@
-run_visual:
+visual:
 	uv run runners/run_visual.py
+
+baseline:
+	uv run runners/run_baseline.py
+
+test:
+	uv run pytest
 
 olist_report:
 	uv run runners/olist_report.py

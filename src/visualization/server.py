@@ -1,5 +1,4 @@
 import solara
-from mesa.visualization import SpaceRenderer
 from mesa.visualization.solara_viz import (
     ModelCreator,
     ModelController,
@@ -8,7 +7,11 @@ from mesa.visualization.solara_viz import (
 )
 
 from src.core.model import Warehouse
-from src.visualization.portals import agent_portrayal, legend_handles
+from src.visualization.portals import (
+    RouteSpaceRenderer,
+    agent_portrayal,
+    legend_handles,
+)
 
 model_params = {
     "width": 20,
@@ -19,11 +22,8 @@ model_params = {
 
 
 def create_renderer(model):
-    return (
-        SpaceRenderer(model, backend="matplotlib")
-        .setup_agents(agent_portrayal)
-        .render()
-    )
+    renderer = RouteSpaceRenderer(model)
+    return renderer.setup_agents(agent_portrayal).render()
 
 
 model = Warehouse(**model_params)
@@ -31,6 +31,7 @@ renderer = create_renderer(model)
 
 
 def configure_renderer(renderer, model):
+    renderer.route_model = model
     figure = renderer.canvas.get_figure()
     figure.set_size_inches(9, 9)
 

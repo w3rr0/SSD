@@ -72,13 +72,15 @@ class Order:
     """A customer order: a list of lines that may need several racks.
 
     ``station_id`` may be left empty; the model then picks a station when the
-    order arrives. Times are in seconds of simulation time.
+    order arrives. ``urgent`` orders are offered to robots before normal ones
+    with the same arrival time. Times are in seconds of simulation time.
     """
 
     order_id: str
     lines: tuple[OrderLine, ...]
     created_time: float = 0.0
     due_time: float | None = None
+    urgent: bool = False
     station_id: str | None = None
     status: OrderStatus = OrderStatus.PENDING
     started_time: float | None = None
