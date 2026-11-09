@@ -599,7 +599,41 @@ z powtórzeniami. Poniżej decyzje dotyczące tego, jak liczy.
 - **Wniosek:** runner działa, ale wyników scenariuszy nie liczymy, dopóki
   zakleszczenie nie jest rozwiązane w modelu.
 
+### Zakleszczenia: co sprawdzono
+- **Wizualizacja Olist** (240 przebiegów po 4 h, roboty 4/8/12/16, oba
+  rozmieszczenia, oba powroty, ruch ×5/×10/×20, seedy 1–5): ustawienia
+  domyślne (8 robotów, losowe, powrót do domu, ×5) przechodzą. Udział
+  zakleszczeń przy ×20: 25% (4 roboty), 45% (8), 65% (12), 80% (16).
+  Najszybciej: 16 robotów, losowe, najbliższe wolne miejsce, ×20, seed 1
+  (`DeadlockError` po ok. 213 s).
+- **Przykładowy przebieg** (12 robotów, losowe, najbliższe wolne miejsce,
+  ×20, seed 1): miejsca startowe to dolny rząd (1,0)–(12,0) tuż przy
+  stanowiskach. Rano ruch jest mały, więc roboty 1–5 stoją tam bezczynnie.
+  Robot z regałem utyka między nimi, drugi stoi za bezczynnym robotem.
+  Bezczynne roboty przesuwają się tylko o pole i nie wyjeżdżają z wąskiego
+  przejścia. Model zgłasza brak postępu po 60 s.
+- **Test: miejsca startowe daleko od stanowisk** (na drugim końcu dolnego
+  rzędu, te same ustawienia, ruch ×10 i ×20, 120 przebiegów na wariant):
+  zakleszczeń 39 zamiast 46. Przy ×20 i 16 robotach 55% zamiast 80%, ale
+  przy 8 robotach 60% zamiast 45%. Bezczynne roboty przy stanowiskach to
+  jedna z przyczyn, ale główną zostają wąskie alejki z ruchem w obie strony.
+  Test robiony tylko poza repozytorium; układ magazynu jest bez zmian.
+- **To nie jest problem zamówień.** Zakleszczenie występuje też na
+  zamówieniach z prostego generatora modelu, a na tym samym seedzie każdy
+  parametr Kiva osobno przechodzi. Szybsza jazda i kompletacja tylko
+  zagęszczają ruch.
+- **Możliwe rozwiązania (decyzja zespołu, zmiana w logice ruchu):**
+  - A) pusty robot przejeżdża pod regałami. Tak działa Kiva, więc to
+    najbliższe opisowi projektu. Robot z regałem nadal jeździ alejkami, więc
+    rozmieszczenie, liczba robotów i stanowiska dalej mają znaczenie,
+  - B) alejki jednokierunkowe,
+  - C) szersze alejki,
+  - D) odsuwanie bezczynnych robotów od stanowisk i lepsze rozładowywanie
+    korków.
+
 ## Sprawy otwarte
+- Sposób usunięcia zakleszczeń (opcje A–D w sekcji 9). Bez tego nie liczymy
+  scenariuszy.
 - Czym są „pilne zamówienia” w scenariuszu awarii, skoro prawdziwe terminy to
   kilka dni. Model ma pole `Order.urgent`; stary generator oznacza losowy
   udział zamówień (`urgent_share`), a generator Olist jeszcze go nie ustawia.
