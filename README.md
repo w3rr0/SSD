@@ -13,12 +13,23 @@ Potrzebny Python 3.15 i [uv](https://docs.astral.sh/uv/).
 uv sync
 uv run data/download_olist.py   # dane Olist do data/raw/ (szczegóły: data/README.md)
 make test                       # testy
-make run_visual_olist           # wizualizacja na zamówieniach Olist (port 8522)
+make visual                     # wizualizacja w przeglądarce (port 8521), to samo: make run_visual
 make scenarios                  # scenariusze, wyniki w output/scenarios/
 ```
 
-Inne cele: `visual` (wizualizacja demo), `baseline` (szybki pomiar),
+Inne cele: `run_visual_olist` (ta sama wizualizacja na porcie 8522), `baseline` (szybki pomiar),
 `olist_report`, `olist_validation`, `olist_plots`, `queue_validation`.
+
+## Wizualizacja
+
+`make visual` otwiera stronę z planem magazynu, statystykami na żywo
+(baterie, średni i ostatni czas realizacji, bezczynność, czas w korkach
+i kolejkach, wykorzystanie stanowisk) oraz listą napływających zamówień.
+W panelu bocznym wybiera się magazyn (pliki `layouts/*.json`), liczbę
+robotów, źródło zamówień (Olist albo demo), rozmieszczenie i natężenie;
+zmiany działają po kliknięciu Reset. Zakleszczenie zatrzymuje symulację
+i podświetla roboty, których dotyczy. Bez danych Olist strona używa
+zamówień demo.
 
 ## Co jest w repozytorium
 
@@ -32,6 +43,8 @@ Inne cele: `visual` (wizualizacja demo), `baseline` (szybki pomiar),
 | Parametry robota z publikacji o Kiva | `src/core/config.py`, `docs/zrodla_parametry_robota.md` |
 | Scenariusze z powtórzeniami i przedziałami ufności | `src/experiments/scenarios.py`, `runners/run_scenarios.py` |
 | Decyzje (problem, opcje, wybór, powód) | `docs/decyzje_dane_olist.md` |
+| Wizualizacja: plan magazynu (SVG), statystyki i zamówienia na żywo | `src/visualization/` |
+| Układy magazynu wczytywane z JSON (opis formatu w README katalogu) | `layouts/`, `src/environment/layout_io.py` |
 
 ## Stan projektu
 

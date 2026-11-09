@@ -1,0 +1,22 @@
+{
+  "name": "Szerokie alejki (2 pola)",
+  "description": "Alejki szerokości dwóch pól: roboty mogą się mijać. Do porównania zakleszczeń z układem standardowym.",
+  "map": [
+    "################################",
+    "#..............................#",
+    "#..............................#",
+    "S..RRRRR..RRRRR..RRRRR..RRRRR..C",
+    "#..RRRRR..RRRRR..RRRRR..RRRRR..#",
+    "#..............................#",
+    "#..............................#",
+    "S..RRRRR..RRRRR..RRRRR..RRRRR..C",
+    "#..RRRRR..RRRRR..RRRRR..RRRRR..#",
+    "#..............................#",
+    "#..............................#",
+    "S..RRRRR..RRRRR..RRRRR..RRRRR..#",
+    "#..RRRRR..RRRRR..RRRRR..RRRRR..#",
+    "#..............................#",
+    "#BBBBBBBB......................#",
+    "################################"
+  ]
+}

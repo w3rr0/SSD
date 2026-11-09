@@ -1,4 +1,7 @@
-visual:
+.PHONY: visual run_visual baseline test olist_report olist_validation olist_plots queue_validation run_visual_olist scenarios
+
+# run_visual is the old name of this target; both start the same page.
+visual run_visual:
 	uv run runners/run_visual.py
 
 baseline:

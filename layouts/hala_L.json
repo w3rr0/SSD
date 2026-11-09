@@ -1,0 +1,22 @@
+{
+  "name": "Hala w kształcie L",
+  "description": "Nieprostokątna hala: wąskie skrzydło magazynowe u góry, szeroka część z trzema stanowiskami po lewej i ładowarkami po prawej. Słupy (#) w prawym korytarzu.",
+  "map": [
+    "###############",
+    "#.............#",
+    "#.RRRR.RRRR...#",
+    "#.RRRR.RRRR...#",
+    "#.............#",
+    "#.RRRR.RRRR...################",
+    "#.RRRR.RRRR..................C",
+    "S............................#",
+    "#.RRRR.RRRR.RRRR.RRRR.RRRR...#",
+    "#.RRRR.RRRR.RRRR.RRRR.RRRR.#.C",
+    "S............................#",
+    "#.RRRR.RRRR.RRRR.RRRR.RRRR...#",
+    "#.RRRR.RRRR.RRRR.RRRR.RRRR.#.#",
+    "S............................#",
+    "#BBBBBB......................#",
+    "##############################"
+  ]
+}

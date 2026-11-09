@@ -1,0 +1,5 @@
+{
+  "name": "Kiva – standard (scenariusze)",
+  "description": "Ten sam magazyn co w scenariuszach: 4×4 bloki regałów 5×2, alejki szerokości 1, stanowiska po lewej, ładowarki po prawej.",
+  "generator": {"block_columns": 4, "block_rows": 4}
+}

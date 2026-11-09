@@ -1,0 +1,6 @@
+{
+  "name": "Demo 20×20",
+  "description": "Układ z dotychczasowego dema (make visual): 3×6 bloków 4×2, dwa stanowiska, dwie ładowarki.",
+  "generator": {"block_columns": 3, "block_rows": 6, "block_length": 4, "block_depth": 2,
+                "num_stations": 2, "num_chargers": 2, "width": 20, "height": 20}
+}

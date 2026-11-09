@@ -115,6 +115,8 @@ class PickingStation(Agent):
         self.serving: Robot | None = None
         self.served = 0
         self.wait_times: list[float] = []
+        # Finished queue waits summed per robot (for the live statistics).
+        self.wait_by_robot: dict[str, float] = {}
         self._busy_time = 0.0
         self._busy_since: float | None = None
         self._queued_at: dict[str, float] = {}
@@ -141,7 +143,11 @@ class PickingStation(Agent):
             return
         robot = self.queue.popleft()
         now = float(self.model.time)
-        self.wait_times.append(now - self._queued_at.pop(robot.robot_id))
+        wait = now - self._queued_at.pop(robot.robot_id)
+        self.wait_times.append(wait)
+        self.wait_by_robot[robot.robot_id] = (
+            self.wait_by_robot.get(robot.robot_id, 0.0) + wait
+        )
         robot.transition(RobotState.PICKING)
         self.serving = robot
         self._busy_since = now
