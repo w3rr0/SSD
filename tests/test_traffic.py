@@ -317,6 +317,86 @@ class WaitingTimeTests(unittest.TestCase):
         self.assertLessEqual(metrics.queue_wait_share, 1.0)
 
 
+class StationQueueClockTests(unittest.TestCase):
+    """Only a robot bringing a rack to the station is in its queue."""
+
+    def _model(self):
+        # One-cell corridor: rack slots on the left, the station on the right.
+        layout = WarehouseLayout(
+            width=7,
+            height=3,
+            blocked=frozenset((x, y) for x in range(7) for y in (0, 2)),
+            racks={"rack-1": (0, 1)},
+            stations={"station-1": (6, 1)},
+            robot_starts={"robot-1": (5, 1), "robot-2": (4, 1)},
+        )
+        model = Warehouse(layout=layout, num_robots=2, orders=[])
+        for number, robot in enumerate(model.robots, start=1):
+            task = PickTask(
+                task_id=f"o{number}/1",
+                order_id=f"o{number}",
+                rack_id="rack-1",
+                station_id="station-1",
+                lines=(OrderLine("sku-1"),),
+                created_time=0.0,
+            )
+            model.tasks_by_id[task.task_id] = task
+            robot.assigned_task_id = task.task_id
+        return model
+
+    @staticmethod
+    def _block(robot, cell, holder):
+        robot.blocked = True
+        robot.blocked_cell = cell
+        robot.blocked_by = holder
+
+    def test_robot_behind_the_queue_with_a_rack_for_the_station_queues(self):
+        model = self._model()
+        first, second = model.robots
+        first.transition(RobotState.TO_RACK)
+        first.transition(RobotState.TO_STATION)
+        second.transition(RobotState.TO_RACK)
+        second.transition(RobotState.TO_STATION)
+        self._block(first, (6, 1), "robot-x")
+        self._block(second, (5, 1), "robot-1")
+
+        model._record_station_waits()
+
+        self.assertEqual(set(model._station_wait_started), {"robot-1", "robot-2"})
+
+    def test_robot_taking_a_rack_back_is_not_in_the_queue(self):
+        # robot-2 already picked at station-1 and drives its rack home; it
+        # only stands behind robot-1, which waits for the same station.
+        model = self._model()
+        first, second = model.robots
+        first.transition(RobotState.TO_RACK)
+        first.transition(RobotState.TO_STATION)
+        second.transition(RobotState.TO_RACK)
+        second.transition(RobotState.TO_STATION)
+        second.transition(RobotState.QUEUED)
+        second.transition(RobotState.PICKING)
+        second.transition(RobotState.RETURNING_RACK)
+        self._block(first, (6, 1), "robot-x")
+        self._block(second, (5, 1), "robot-1")
+
+        model._record_station_waits()
+
+        self.assertEqual(set(model._station_wait_started), {"robot-1"})
+
+    def test_robot_on_its_way_to_the_rack_is_not_in_the_queue(self):
+        model = self._model()
+        first, second = model.robots
+        first.transition(RobotState.TO_RACK)
+        first.transition(RobotState.TO_STATION)
+        second.transition(RobotState.TO_RACK)
+        self._block(first, (6, 1), "robot-x")
+        self._block(second, (5, 1), "robot-1")
+
+        model._record_station_waits()
+
+        self.assertNotIn("robot-2", model._station_wait_started)
+
+
 class IdleBlockerChainTests(unittest.TestCase):
     def test_boxed_idle_blockers_are_moved_as_a_chain(self):
         # Bottom row with the wall below it (outside the grid), racks directly

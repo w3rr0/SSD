@@ -424,9 +424,15 @@ class Warehouse(Model):
 
         A robot may wait in front of the station cell, or behind another robot
         already waiting for the same station. Both cases count as queue time.
+
+        Only robots bringing a rack to the station (``TO_STATION``) queue for
+        it. A robot on its way to a rack or taking one back may stand behind
+        the same queue, but that is traffic: its task names the station too,
+        yet the clock would only stop at its next arrival there, so the whole
+        trip to the rack would be reported as queue time.
         """
         for robot in self.robots:
-            if robot.yielding:
+            if robot.yielding or robot.state is not RobotState.TO_STATION:
                 continue
             if robot.robot_id in self._station_wait_started:
                 continue
@@ -444,7 +450,7 @@ class Warehouse(Model):
         while changed:
             changed = False
             for robot in self.robots:
-                if robot.yielding:
+                if robot.yielding or robot.state is not RobotState.TO_STATION:
                     continue
                 if robot.robot_id in self._station_wait_started:
                     continue
