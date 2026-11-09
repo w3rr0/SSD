@@ -122,19 +122,43 @@ class NearestFreeSlot:
 
     def __init__(self, layout: WarehouseLayout):
         self.slots: tuple[Coordinate, ...] = tuple(sorted(layout.racks.values()))
-        self.reserved: dict[str, Coordinate] = {}
+        # rack_id -> (slot, task the reservation was made for)
+        self._reservations: dict[str, tuple[Coordinate, str]] = {}
+
+    @property
+    def reserved(self) -> dict[str, Coordinate]:
+        """Slots claimed by racks that were heading to them (may be stale)."""
+        return {rack_id: slot for rack_id, (slot, _) in self._reservations.items()}
+
+    def _live_reservations(self, model) -> set[Coordinate]:
+        """Slots held by racks that are still on the trip they reserved for.
+
+        A reservation ends when the rack is put down (it then occupies the
+        slot as a standing rack) or picked up for a new task. Without this
+        check the slot a rack left would stay blocked for every other rack
+        while it is away, so racks would mostly return to their own slot.
+        """
+        live = set()
+        for rack_id, (slot, task_id) in list(self._reservations.items()):
+            other = model.racks[rack_id]
+            if other.carried_by is not None and other.reserved_by_task == task_id:
+                live.add(slot)
+            else:
+                del self._reservations[rack_id]
+        return live
 
     def choose(self, model, rack) -> Coordinate:
-        task = model.tasks_by_id[rack.reserved_by_task]
+        task_id = rack.reserved_by_task
+        task = model.tasks_by_id[task_id]
         station = model.layout.stations[task.station_id]
         # A rack heads to one slot at a time; its old reservation is done.
-        self.reserved.pop(rack.rack_id, None)
+        self._reservations.pop(rack.rack_id, None)
         taken = {
             other.pos for other in model.racks.values() if other.carried_by is None
-        } | set(self.reserved.values())
+        } | self._live_reservations(model)
         free = [slot for slot in self.slots if slot not in taken]
         if not free:
             raise RuntimeError(f"No free slot for {rack.rack_id}")
         best = min(free, key=lambda slot: (manhattan(slot, station), slot))
-        self.reserved[rack.rack_id] = best
+        self._reservations[rack.rack_id] = (best, task_id)
         return best
