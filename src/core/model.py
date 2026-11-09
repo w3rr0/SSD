@@ -1,3 +1,4 @@
+import heapq
 from collections import deque
 from collections.abc import Iterable, Mapping, Sequence
 
@@ -17,6 +18,7 @@ from src.pipeline.pathfinding import NoPathError, astar_path
 from src.pipeline.reservations import (
     ConflictResolver,
     DeadlockError,
+    LivelockError,
     ReservationTable,
     lowest_id_wins,
     natural_key,
@@ -128,7 +130,12 @@ class Warehouse(Model):
         self.orders: list[Order] = []
         self.orders_by_id: dict[str, Order] = {}
         self.released_orders: list[Order] = []
-        self._unreleased: list[Order] = []
+        # Future orders as a heap of (created_time, insertion number, order):
+        # releasing the due ones costs O(log n) instead of a scan every tick.
+        self._unreleased: list[tuple[float, int, Order]] = []
+        # Released orders that are not completed yet, in release order.
+        self._open_orders: list[Order] = []
+        self._completed_orders = 0
         self.tasks: list[PickTask] = []
         self.tasks_by_id: dict[str, PickTask] = {}
         self._station_wait_started: dict[str, float] = {}
@@ -166,7 +173,9 @@ class Warehouse(Model):
         self._validate_order(order)
         self.orders.append(order)
         self.orders_by_id[order.order_id] = order
-        self._unreleased.append(order)
+        heapq.heappush(
+            self._unreleased, (order.created_time, len(self.orders), order)
+        )
         self.schedule_event(
             self._release_due_orders,
             at=order.created_time,
@@ -174,14 +183,11 @@ class Warehouse(Model):
         )
 
     def _release_due_orders(self) -> None:
-        due = [o for o in self._unreleased if o.created_time <= self.time]
-        if not due:
-            return
-        self._unreleased = [o for o in self._unreleased if o.created_time > self.time]
-        due.sort(key=lambda order: order.created_time)
-        for order in due:
+        while self._unreleased and self._unreleased[0][0] <= self.time:
+            _, _, order = heapq.heappop(self._unreleased)
             self._plan_tasks(order)
-        self.released_orders.extend(due)
+            self.released_orders.append(order)
+            self._open_orders.append(order)
 
     def _plan_tasks(self, order: Order) -> None:
         """Split an order into pick tasks, one per rack it needs.
@@ -224,9 +230,11 @@ class Warehouse(Model):
     def _choose_station(self) -> str:
         """Station with the fewest unfinished tasks (ties: station ID)."""
         open_tasks = {station_id: 0 for station_id in self.stations}
-        for task in self.tasks:
-            if task.status is not TaskStatus.COMPLETED:
-                open_tasks[task.station_id] += 1
+        # A completed order has only completed tasks, so open orders suffice.
+        for order in self._open_orders:
+            for task in order.tasks:
+                if task.status is not TaskStatus.COMPLETED:
+                    open_tasks[task.station_id] += 1
         return min(open_tasks, key=lambda sid: (open_tasks[sid], sid))
 
     def _default_robot_configs(self, num_robots: int) -> tuple[RobotConfig, ...]:
@@ -281,9 +289,7 @@ class Warehouse(Model):
 
     @property
     def all_orders_completed(self) -> bool:
-        return not self._unreleased and all(
-            order.status is OrderStatus.COMPLETED for order in self.orders
-        )
+        return not self._unreleased and self._completed_orders == len(self.orders)
 
     def step(self) -> None:
         """One movement tick (called by Mesa every ``TICK_S`` seconds)."""
@@ -489,10 +495,7 @@ class Warehouse(Model):
             if escape is None:
                 continue
             mover, route = escape
-            mover.set_route(route)
-            mover.yielding = True
-            mover.yield_parked_at = None
-            mover.yield_wait_since = None
+            self._begin_yield(mover, route)
 
     def _can_step_aside(self, robot: Robot) -> bool:
         """Whether ``robot`` is an idle robot that may be moved out of the way."""
@@ -585,12 +588,30 @@ class Warehouse(Model):
             route = self._yield_path(robot)
             if route is None:
                 continue
-            robot.set_route(route)
-            robot.yielding = True
-            robot.yield_parked_at = None
-            robot.yield_wait_since = None
+            self._begin_yield(robot, route)
             return True
         return False
+
+    def _begin_yield(self, robot: Robot, route: tuple[Coordinate, ...]) -> None:
+        """Send ``robot`` on a detour that makes room for another robot.
+
+        Raises ``LivelockError`` when a working robot has given way more than
+        ``livelock_yield_limit`` times on one leg: two robots that keep making
+        room for each other move all the time, so neither the cycle check nor
+        the progress check would ever notice them.
+        """
+        robot.set_route(route)
+        robot.yielding = True
+        robot.yield_parked_at = None
+        robot.yield_wait_since = None
+        if robot.state is RobotState.IDLE:
+            return
+        robot.yields_this_leg += 1
+        if robot.yields_this_leg > self.config.livelock_yield_limit:
+            raise LivelockError(
+                f"{robot.robot_id} gave way {robot.yields_this_leg} times "
+                f"without finishing its {robot.state} leg at {robot.pos}"
+            )
 
     def _yield_path(
         self, robot: Robot, *, avoid_routes: bool = True
@@ -681,9 +702,7 @@ class Warehouse(Model):
                 # itself while we stand here.
                 away = self._yield_path(robot)
                 if away is not None:
-                    robot.set_route(away)
-                    robot.yield_parked_at = None
-                    robot.yield_wait_since = None
+                    self._begin_yield(robot, away)
                     return
             self._mark_waiting(robot, holder, goal)
             return
@@ -861,14 +880,12 @@ class Warehouse(Model):
             for robot in self.robots
             if robot.is_available and not self._needs_charge(robot)
         ]
-        orders = sorted(
-            (
-                order
-                for order in self.released_orders
-                if order.status is not OrderStatus.COMPLETED
-            ),
-            key=lambda order: not order.urgent,
-        )
+        self._open_orders = [
+            order
+            for order in self._open_orders
+            if order.status is not OrderStatus.COMPLETED
+        ]
+        orders = sorted(self._open_orders, key=lambda order: not order.urgent)
         for order in orders:
             if not available:
                 return
@@ -1031,6 +1048,7 @@ class Warehouse(Model):
         order = self.orders_by_id[task.order_id]
         if order.all_tasks_completed:
             order.complete(self.time)
+            self._completed_orders += 1
         rack = self.racks[task.rack_id]
         rack.trips += 1
         robot.set_route(self._route(robot.pos, self.return_location(rack)))

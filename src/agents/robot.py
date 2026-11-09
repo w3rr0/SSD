@@ -86,6 +86,9 @@ class Robot(Agent):
         self.yielding = False
         self.yield_parked_at: float | None = None
         self.yield_wait_since: float | None = None
+        # Detours started since the last state change; a robot that keeps
+        # giving way without ever finishing its leg is in a livelock.
+        self.yields_this_leg = 0
         self._pre_failure_state: RobotState | None = None
         self._pre_failure_route: tuple[Coordinate, ...] = ()
         self._pre_failure_yielding = False
@@ -110,6 +113,9 @@ class Robot(Agent):
             )
         now = float(self.model.time)
         self._time_in_state[self.state] += now - self._state_since
+        # A failure and the repair after it resume the same leg.
+        if RobotState.FAILED not in (self.state, new_state):
+            self.yields_this_leg = 0
         self.state = new_state
         self._state_since = now
         self.state_history.append((now, new_state))

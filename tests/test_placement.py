@@ -142,6 +142,19 @@ class NearestFreeSlotTests(unittest.TestCase):
         policy.choose(model, model.racks["rack-4"])
         self.assertEqual(policy.choose(model, model.racks["rack-1"]), (5, 0))
 
+    def test_a_slot_is_released_once_the_rack_is_put_down(self):
+        # rack-4 reserved rack-1's slot (2, 0) and was put down there. Later
+        # rack-4 leaves again for a new task: (2, 0) is free for rack-1 now.
+        model = self.state(away={"rack-1", "rack-4"})
+        policy = NearestFreeSlot(LAYOUT)
+        self.assertEqual(policy.choose(model, model.racks["rack-4"]), (2, 0))
+        model.racks["rack-4"].pos = (2, 0)
+        model.racks["rack-4"].reserved_by_task = "task-rack-4-again"
+        model.tasks_by_id["task-rack-4-again"] = SimpleNamespace(
+            station_id="station-1"
+        )
+        self.assertEqual(policy.choose(model, model.racks["rack-1"]), (2, 0))
+
     def test_racks_never_share_a_slot(self):
         orders = [
             Order(f"o{i}", [f"sku-rack-{(i % 8) + 1}"], created_time=float(i * 3))
