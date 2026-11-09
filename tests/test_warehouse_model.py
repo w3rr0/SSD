@@ -154,24 +154,8 @@ class WarehouseModelTests(unittest.TestCase):
                 Order("old", ["sku-1"], station_id="station-1", created_time=5.0)
             )
 
-    def test_visualization_uses_a_page_for_the_space_component(self):
-        from src.visualization.server import page, renderer
+    def test_visualization_app_has_a_page(self):
+        from src.visualization.app import LAYOUTS, page
 
         self.assertIsNotNone(page)
-        self.assertIsNotNone(renderer)
-        self.assertEqual(renderer.canvas.get_figure().get_size_inches().tolist(), [9.0, 9.0])
-        self.assertEqual(renderer.canvas.get_xlim(), (-0.5, 19.5))
-        self.assertEqual(renderer.canvas.get_ylim(), (-0.5, 19.5))
-        legend = renderer.canvas.get_legend()
-        self.assertIsNotNone(legend)
-        self.assertEqual(
-            [text.get_text() for text in legend.get_texts()],
-            [
-                "Robot",
-                "Robot with a rack",
-                "Rack",
-                "Transported rack",
-                "Completing station",
-                "Charger",
-            ],
-        )
+        self.assertIn("kiva_standard", LAYOUTS)

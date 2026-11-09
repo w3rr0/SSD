@@ -500,7 +500,7 @@ z powtórzeniami. Poniżej decyzje dotyczące tego, jak liczy.
   stanowiska w szczycie. Te warianty pokazują przeciążenie, a nie samą
   wrażliwość, i tak je opisujemy.
 - **Powrót na najbliższe wolne miejsce:** runner używa podklasy modelu
-  z własnym `return_location`, tak jak `runners/run_visual_olist.py`, bez
+  z własnym `return_location`, tak jak wizualizacja (`src/visualization/app.py`), bez
   zmian w pliku modelu.
 
 ### Jeden przebieg
