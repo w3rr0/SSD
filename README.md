@@ -13,7 +13,7 @@ Potrzebny Python 3.15 i [uv](https://docs.astral.sh/uv/).
 uv sync
 uv run data/download_olist.py   # dane Olist do data/raw/ (szczegóły: data/README.md)
 make test                       # testy
-make visual                     # wizualizacja w przeglądarce (port 8521)
+make visual                     # wizualizacja w przeglądarce (port 8521), to samo: make run_visual
 make scenarios                  # scenariusze, wyniki w output/scenarios/
 ```
 
