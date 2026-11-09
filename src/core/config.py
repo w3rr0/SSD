@@ -154,7 +154,9 @@ class SimulationConfig:
     direction only reserves ``follow_lookahead`` cells ahead, so a convoy
     keeps a one-cell headway instead of leaving the full lookahead gap empty.
     ``deadlock_timeout_s`` is how long a cycle of robots waiting for each
-    other may persist before the model reports it. ``failures`` controls the
+    other may persist before the model reports it. ``livelock_yield_limit``
+    is how many detours a working robot may take on one leg (e.g. on its way
+    to a rack) before the model reports a livelock. ``failures`` controls the
     optional failure/repair process; it is disabled by default. ``assignment``
     selects the robot-to-task rule and its weights.
     """
@@ -169,6 +171,10 @@ class SimulationConfig:
     reservation_lookahead: int = 3
     follow_lookahead: int = 1
     deadlock_timeout_s: float = 60.0
+    # Healthy Olist days show pairs of robots giving way to each other for up
+    # to ~100 detours (~9 min) before traffic breaks the pattern; 300 only
+    # stops runs where the pattern never breaks.
+    livelock_yield_limit: int = 300
 
     def __post_init__(self) -> None:
         if self.cell_size_m <= 0:
@@ -182,6 +188,8 @@ class SimulationConfig:
             )
         if self.deadlock_timeout_s <= 0:
             raise ValueError("Deadlock timeout must be positive")
+        if self.livelock_yield_limit < 1:
+            raise ValueError("Livelock yield limit must be at least one")
 
     @property
     def cells_per_tick(self) -> float:

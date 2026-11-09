@@ -5,7 +5,7 @@ from src.core.config import PickingParams, SimulationConfig
 from src.core.model import Warehouse
 from src.environment.layout import WarehouseLayout
 from src.orders.models import Order, OrderLine, PickTask
-from src.pipeline.reservations import DeadlockError
+from src.pipeline.reservations import DeadlockError, LivelockError
 
 
 class CollisionFreeTrafficTests(unittest.TestCase):
@@ -78,6 +78,61 @@ class DeadlockDetectionTests(unittest.TestCase):
         with self.assertRaises(DeadlockError):
             for _ in range(50):
                 model.step()
+
+
+class LivelockDetectionTests(unittest.TestCase):
+    def make_model(self, limit=3):
+        return Warehouse(
+            num_robots=2,
+            orders=[],
+            config=SimulationConfig(livelock_yield_limit=limit),
+        )
+
+    def detour(self, robot):
+        return (robot.pos,)
+
+    def test_endless_giving_way_on_one_leg_raises(self):
+        model = self.make_model(limit=3)
+        robot = model.robots[0]
+        robot.transition(RobotState.TO_RACK)
+        for _ in range(3):
+            model._begin_yield(robot, self.detour(robot))
+
+        with self.assertRaises(LivelockError):
+            model._begin_yield(robot, self.detour(robot))
+
+    def test_livelock_is_a_deadlock_for_callers(self):
+        self.assertTrue(issubclass(LivelockError, DeadlockError))
+
+    def test_a_new_leg_starts_counting_again(self):
+        model = self.make_model(limit=3)
+        robot = model.robots[0]
+        robot.transition(RobotState.TO_RACK)
+        for _ in range(3):
+            model._begin_yield(robot, self.detour(robot))
+        robot.transition(RobotState.TO_STATION)
+
+        model._begin_yield(robot, self.detour(robot))
+
+        self.assertEqual(robot.yields_this_leg, 1)
+
+    def test_a_failure_does_not_reset_the_leg(self):
+        model = self.make_model(limit=3)
+        robot = model.robots[0]
+        robot.transition(RobotState.TO_RACK)
+        model._begin_yield(robot, self.detour(robot))
+        robot.fail()
+        robot.repair()
+
+        self.assertEqual(robot.yields_this_leg, 1)
+
+    def test_idle_robots_making_room_are_not_counted(self):
+        model = self.make_model(limit=1)
+        robot = model.robots[0]
+        for _ in range(5):
+            model._begin_yield(robot, self.detour(robot))
+
+        self.assertEqual(robot.yields_this_leg, 0)
 
 
 class IdleBlockerTests(unittest.TestCase):

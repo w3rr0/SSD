@@ -11,6 +11,14 @@ class DeadlockError(RuntimeError):
     """Raised when robots wait for each other in a cycle."""
 
 
+class LivelockError(DeadlockError):
+    """Raised when robots keep moving but keep giving way to each other.
+
+    A subclass of ``DeadlockError``, so callers that treat a deadlock as a
+    failed run treat a livelock the same way.
+    """
+
+
 def natural_key(identifier: str) -> tuple[int, str, int]:
     """Sort ``robot-2`` before ``robot-10``; other IDs lexicographically."""
     prefix, separator, suffix = identifier.rpartition("-")
