@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from types import MappingProxyType
 from typing import ClassVar, Mapping
 
@@ -16,6 +16,10 @@ class WarehouseLayout:
     stations: Mapping[str, Coordinate] = MappingProxyType({})
     robot_starts: Mapping[str, Coordinate] = MappingProxyType({})
     chargers: Mapping[str, Coordinate] = MappingProxyType({})
+    # Cells outside the building (e.g. the cut-out corner of an L-shaped
+    # hall). They are blocked like walls; the difference only matters for
+    # drawing: walls are drawn, the outside is left empty.
+    outside: frozenset[Coordinate] = frozenset()
 
     _DIRECTIONS: ClassVar[tuple[Coordinate, ...]] = (
         (1, 0),
@@ -28,7 +32,10 @@ class WarehouseLayout:
         if self.width <= 0 or self.height <= 0:
             raise ValueError("Warehouse dimensions must be positive")
 
-        object.__setattr__(self, "blocked", frozenset(self.blocked))
+        object.__setattr__(self, "outside", frozenset(self.outside))
+        object.__setattr__(
+            self, "blocked", frozenset(self.blocked) | self.outside
+        )
         for field_name in ("racks", "stations", "robot_starts", "chargers"):
             object.__setattr__(
                 self,
@@ -65,6 +72,98 @@ class WarehouseLayout:
     def is_walkable(self, position: Coordinate) -> bool:
         self.validate_position(position)
         return position not in self.blocked
+
+    @property
+    def walls(self) -> frozenset[Coordinate]:
+        """Blocked cells inside the building (drawn as walls)."""
+        return self.blocked - self.outside
+
+    @property
+    def floor(self) -> frozenset[Coordinate]:
+        """Every cell a robot can stand on: aisles, racks, stations, chargers."""
+        return frozenset(
+            (x, y)
+            for x in range(self.width)
+            for y in range(self.height)
+            if (x, y) not in self.blocked
+        )
+
+    def aisles(self) -> frozenset[Coordinate]:
+        """Walkable cells that hold no rack, station or charger."""
+        features = (
+            set(self.racks.values())
+            | set(self.stations.values())
+            | set(self.chargers.values())
+        )
+        return self.floor - features
+
+    def with_robot_starts(self, count: int) -> WarehouseLayout:
+        """This layout with at least ``count`` robot start cells.
+
+        Starts defined in the layout come first; missing ones are taken from
+        free aisle cells, bottom row first, like ``generate`` does.
+        """
+        if count <= len(self.robot_starts):
+            return self
+        taken = set(self.robot_starts.values())
+        free = sorted(
+            (cell for cell in self.aisles() if cell not in taken),
+            key=lambda cell: (cell[1], cell[0]),
+        )
+        missing = count - len(self.robot_starts)
+        if len(free) < missing:
+            raise ValueError(
+                f"The layout has room for {len(self.robot_starts) + len(free)} "
+                f"robots, {count} requested"
+            )
+        starts = dict(self.robot_starts)
+        number = len(starts)
+        for cell in free[:missing]:
+            number += 1
+            while f"robot-{number}" in starts:
+                number += 1
+            starts[f"robot-{number}"] = cell
+        return replace(self, robot_starts=starts)
+
+    def unreachable(self) -> list[str]:
+        """Names of racks, stations and chargers robots cannot get to.
+
+        Racks, stations and chargers are obstacles, so each must touch an
+        aisle cell that is connected to the aisle the first robot starts on
+        (or the largest aisle area when there are no robot starts).
+        """
+        aisles = self.aisles()
+        if not aisles:
+            return sorted([*self.racks, *self.stations, *self.chargers])
+        starts = [cell for cell in self.robot_starts.values() if cell in aisles]
+        components: list[set[Coordinate]] = []
+        seen: set[Coordinate] = set()
+        for cell in sorted(aisles):
+            if cell in seen:
+                continue
+            component = {cell}
+            queue = [cell]
+            while queue:
+                current = queue.pop()
+                for neighbor in self.neighbors(current):
+                    if neighbor in aisles and neighbor not in component:
+                        component.add(neighbor)
+                        queue.append(neighbor)
+            seen |= component
+            components.append(component)
+        if starts:
+            main = next(c for c in components if starts[0] in c)
+        else:
+            main = max(components, key=len)
+        problems = []
+        for group in (self.racks, self.stations, self.chargers):
+            for name, cell in group.items():
+                if not any(n in main for n in self.neighbors(cell)):
+                    problems.append(name)
+        problems += [
+            name for name, cell in self.robot_starts.items() if cell not in main
+        ]
+        return problems
 
     def neighbors(self, position: Coordinate) -> tuple[Coordinate, ...]:
         self.validate_position(position)
@@ -201,25 +300,32 @@ class WarehouseLayout:
         )
 
     @classmethod
-    def from_ascii(cls, rows: list[str]) -> WarehouseLayout:
+    def from_ascii(cls, rows: list[str], *, top_down: bool = False) -> WarehouseLayout:
         """Build a layout from ``#`` walls, ``R`` racks, ``S`` stations,
-        ``C`` chargers, and ``B`` robots.
+        ``C`` chargers, ``B`` robots, ``.`` floor and `` `` (space) outside.
 
-        The first row is ``y = 0``.
+        The first row is ``y = 0``. With ``top_down=True`` the first row is
+        the top of the drawing instead (``y = height - 1``), so a map in a
+        file looks the same as on screen. Rows shorter than the longest one
+        are padded with outside cells.
         """
-        if not rows or not rows[0]:
+        if not rows or not any(rows):
             raise ValueError("ASCII layout cannot be empty")
-        width = len(rows[0])
-        if any(len(row) != width for row in rows):
+        width = max(len(row) for row in rows)
+        if not top_down and any(len(row) != width for row in rows):
             raise ValueError("All ASCII layout rows must have the same width")
+        rows = [row.ljust(width) for row in rows]
+        if top_down:
+            rows = list(reversed(rows))
 
         blocked: set[Coordinate] = set()
+        outside: set[Coordinate] = set()
         racks: dict[str, Coordinate] = {}
         stations: dict[str, Coordinate] = {}
         robot_starts: dict[str, Coordinate] = {}
         chargers: dict[str, Coordinate] = {}
         counters = {"R": 0, "S": 0, "B": 0, "C": 0}
-        supported = {".", "#", "R", "S", "B", "C"}
+        supported = {".", "#", " ", "R", "S", "B", "C"}
 
         for y, row in enumerate(rows):
             for x, symbol in enumerate(row):
@@ -228,6 +334,8 @@ class WarehouseLayout:
                 position = (x, y)
                 if symbol == "#":
                     blocked.add(position)
+                elif symbol == " ":
+                    outside.add(position)
                 elif symbol in counters:
                     counters[symbol] += 1
                     prefix = {
@@ -252,4 +360,5 @@ class WarehouseLayout:
             stations=stations,
             robot_starts=robot_starts,
             chargers=chargers,
+            outside=frozenset(outside),
         )
