@@ -10,6 +10,9 @@ baseline:
 test:
 	uv run pytest
 
+download_olist:
+	uv run data/download_olist.py
+
 olist_report:
 	uv run runners/olist_report.py
 
