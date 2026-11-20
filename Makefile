@@ -30,3 +30,6 @@ run_visual_olist:
 
 scenarios:
 	uv run runners/run_scenarios.py
+
+record:
+	uv run runners/run_record.py
