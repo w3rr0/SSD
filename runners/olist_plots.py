@@ -34,12 +34,16 @@ from src.orders.olist_generator import generate_orders  # noqa: E402
 
 OUT_DIR = ROOT / "output" / "olist"
 
-REAL = "#2a78d6"  # blue: real data
-GENERATED = "#eb6834"  # orange: generator
-INK = "#0b0b0b"
-INK_SECONDARY = "#52514e"
-GRID = "#e4e3df"
-SURFACE = "#fcfcfb"
+from src.plotting.style import (  # noqa: E402
+    GENERATED,
+    GRID,
+    INK,
+    INK_SECONDARY,
+    REAL,
+    SURFACE,
+    save as save_figure,
+    style,
+)
 
 REAL_LABEL = f"prawdziwe {VALIDATION_YEAR}"
 GEN_LABEL = f"generator (z {CALIBRATION_YEAR})"
@@ -48,35 +52,8 @@ DAY_NAMES = ["pn", "wt", "śr", "czw", "pt", "sob", "ndz"]
 PLAIN_NUMBER = FuncFormatter(lambda value, _: f"{value:g}")  # 100, not 10^2
 
 
-def style() -> None:
-    plt.rcParams.update(
-        {
-            "figure.facecolor": SURFACE,
-            "axes.facecolor": SURFACE,
-            "axes.edgecolor": GRID,
-            "axes.labelcolor": INK_SECONDARY,
-            "axes.titlecolor": INK,
-            "axes.titlesize": 13,
-            "axes.titleweight": "bold",
-            "axes.spines.top": False,
-            "axes.spines.right": False,
-            "axes.grid": True,
-            "axes.axisbelow": True,
-            "grid.color": GRID,
-            "grid.linewidth": 0.8,
-            "xtick.color": INK_SECONDARY,
-            "ytick.color": INK_SECONDARY,
-            "legend.frameon": False,
-            "font.size": 10,
-        }
-    )
-
-
 def save(fig: plt.Figure, name: str) -> None:
-    fig.tight_layout()
-    path = OUT_DIR / name
-    fig.savefig(path, dpi=150)
-    plt.close(fig)
+    path = save_figure(fig, OUT_DIR / name)
     print(f"saved {path.relative_to(ROOT)}")
 
 

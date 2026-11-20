@@ -1,6 +1,5 @@
-.PHONY: visual run_visual baseline test olist_report olist_validation olist_plots queue_validation run_visual_olist scenarios
+.PHONY: visual baseline test olist_report olist_validation olist_plots queue_validation run_visual_olist scenarios record
 
-# run_visual is the old name of this target; both start the same page.
 visual:
 	uv run runners/run_visual.py
 
@@ -9,6 +8,9 @@ baseline:
 
 test:
 	uv run pytest
+
+download_olist:
+	uv run data/download_olist.py
 
 olist_report:
 	uv run runners/olist_report.py
@@ -27,3 +29,6 @@ run_visual_olist:
 
 scenarios:
 	uv run runners/run_scenarios.py
+
+record:
+	uv run runners/run_record.py
