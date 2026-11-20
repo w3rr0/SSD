@@ -15,6 +15,19 @@ INK_SECONDARY = "#52514e"
 GRID = "#e4e3df"
 SURFACE = "#fcfcfb"
 
+# Validated categorical order (adjacent-pair CVD safe, light surface).
+# Assign in this fixed order, never cycled; a 9th series folds into "Other".
+CATEGORICAL = (
+    "#2a78d6",  # blue
+    "#eb6834",  # orange
+    "#1baf7a",  # aqua
+    "#eda100",  # yellow
+    "#e87ba4",  # magenta
+    "#008300",  # green
+    "#6250d6",  # violet
+    "#e34948",  # red
+)
+
 
 def style() -> None:
     """Apply the project-wide rcParams to matplotlib."""
