@@ -754,7 +754,8 @@ się porównać.
   procesach. Powód: potrzeba szybkich, przykładowych wyników na spotkanie;
   pełne liczenie zostaje w runnerze scenariuszy.
 - Zawartość: zakleszczenia przed/po, rozmieszczenie (S1), liczba robotów
-  (S1, ×5 i ×9,5), przydział zadań (S6), układy magazynu (dodatkowo).
+  (S1, ×5 i ×9,5), przydział zadań (S6), układy magazynu (dodatkowo),
+  wpływ pojedynczych reguł ruchu (niżej).
 - Główne wyniki przykładowe: ABC wobec losowego skraca dystans na zamówienie
   o 19% przy obu obciążeniach, średni czas realizacji o 14% w zwykły dzień
   i o 65% przy ×5 (przy 8 robotach losowe zaczyna się korkować).
@@ -762,6 +763,54 @@ się porównać.
   Przy ×5 od 12 robotów czas przestaje spadać. Przydział „termin + bateria”
   nie różni się od „najbliższego robota” (różnica 1–2% w granicach błędu),
   bo terminy Olist to dni, a przebieg trwa godziny.
+
+### Porównanie: która reguła ruchu ile daje (sekcja 5 notatnika)
+**Problem.** Zestaw reguł ruchu był dobrany po to, żeby usunąć zakleszczenia.
+Osoba 1 zwróciła uwagę, że same reguły (np. przejazd pustych robotów pod
+regałami) też są wynikiem: mówią, czy coś takiego opłaca się mieć w magazynie.
+Porównanie „stare/nowe zasady” tego nie pokazuje, bo zmienia wszystko naraz.
+
+**Opcje.**
+- A. Zostawić tylko porównanie „wszystkie reguły / żadna”.
+- B. Wyłączać po jednej regule, resztę zostawiając (ablacja).
+- C. Pełny układ czynnikowy (wszystkie kombinacje 7 reguł, 128 wariantów).
+
+**Decyzja: B.** Powód: B odpowiada na pytanie „ile daje ta reguła” przy
+zachowaniu pozostałych, liczy się ok. 70 s (9 wariantów × 3 natężenia ×
+5 seedów = 135 przebiegów), a C byłoby kilkanaście razy dłuższe i dawało
+interakcje, których na spotkaniu nie da się czytelnie pokazać.
+
+**Jak.** `TRAFFIC_VARIANTS` w `src/experiments/build.py`: `new`, `old`
+i `no_<reguła>` (np. `no_under_racks` = `TrafficParams(empty_under_racks=False)`).
+`no_route_costs` wyłącza całe `TrafficRules` (kierunki w alejkach i koszty pól
+pod regałami i przed stanowiskami), bo w kodzie to jeden przełącznik
+`one_way_aisles`. 8 robotów przy ×1 i ×5, 16 robotów przy ×9,5, 5 seedów, 4 h.
+Miary: odsetek przebiegów z zakleszczeniem oraz czas i dystans liczone tylko
+z przebiegów bez zakleszczenia. Model nie został zmieniony, tylko sposób
+budowania przebiegu do porównań.
+
+**Wyniki (przykładowe, 5 seedów).**
+- Bez przejazdu pod regałami magazyn staje nawet w zwykły dzień (60%
+  przebiegów przy ×1, 20% przy ×5, 40% przy ×9,5). Gdy nie stanie, dystans na
+  zamówienie rośnie o 14–16%, a średni czas realizacji o ok. 21% (×1)
+  i 82% (×5). To reguła o znaczeniu praktycznym: wycenia robota mieszczącego się
+  pod regałem. Zastrzeżenie: roboty typu Kiva z konstrukcji jeżdżą pod
+  regałami, więc wynik opisuje magazyn, w którym to niemożliwe.
+- Bez kierunków w alejkach i kosztów pól zwykły dzień jest szybszy (dystans
+  −18%, czas −11%), ale od ×5 każdy przebieg się zakleszcza. Reguła kosztuje
+  przy małym ruchu i jest konieczna przy dużym.
+- Bez limitu kolejki albo bez omijania stojących robotów ×1 i ×5 nie zmieniają
+  się istotnie (różnice w granicach przedziałów ufności), a Black Friday
+  zakleszcza się zawsze.
+- Bez wolnego pola przed stanowiskiem i bez wyboru najbliższego stanowiska nie
+  ma zakleszczeń, ale czas realizacji rośnie: przy ×9,5 o ok. 32% i 10%,
+  przy ×5 o ok. 16% i 18% (szerokie przedziały).
+- Bez zjazdu z ładowarki wyniki są identyczne: w 4 h reguła nie zadziałała.
+  Nie wnioskujemy z tego, że jest zbędna; ma znaczenie w dłuższych przebiegach.
+
+**Ograniczenia.** 5 seedów i 4 h; przy ×5 przedziały ufności są szerokie
+(±40–70 s przy średniej ok. 140 s), więc różnice poniżej ok. 30% przy ×5
+traktujemy jako niepewne. Jedna konfiguracja (kiva_standard, 8/16 robotów).
 
 ## Sprawy otwarte
 - Zakleszczenia: rozwiązane zasadami ruchu z sekcji 10 dla zwykłego dnia

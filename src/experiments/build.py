@@ -40,6 +40,21 @@ OLIST_BASE_VOLUME = 10.0
 # Demo orders at 1x: one order a minute on average.
 DEMO_ORDERS_PER_HOUR = 60.0
 
+# Traffic rule sets for comparisons: "new" (all rules), "old" (none, the
+# movement before the deadlock fix) and "no_<rule>" (all rules but one), to
+# show what each rule alone is worth.
+TRAFFIC_VARIANTS: dict[str, TrafficParams] = {
+    "new": TrafficParams(),
+    "old": TrafficParams.off(),
+    "no_under_racks": TrafficParams(empty_under_racks=False),
+    "no_route_costs": TrafficParams(one_way_aisles=False),
+    "no_queue_limit": TrafficParams(station_queue_limit=0),
+    "no_front_free": TrafficParams(keep_station_front_free=False),
+    "no_replan": TrafficParams(replan_after_s=0.0),
+    "no_leave_charger": TrafficParams(leave_charger=False),
+    "no_nearest_station": TrafficParams(nearest_station_slack=-1),
+}
+
 
 @cache
 def olist_stats():
@@ -158,7 +173,8 @@ class ConfiguredWarehouse(Warehouse):
 
     ``assignment`` is the robot-to-task rule (``nearest`` or
     ``deadline_battery``). ``traffic="old"`` switches off the traffic rules
-    that prevent deadlocks, to compare with the movement before the fix.
+    that prevent deadlocks, to compare with the movement before the fix;
+    ``traffic="no_<rule>"`` switches off one rule (see ``TRAFFIC_VARIANTS``).
     """
 
     def __init__(
@@ -174,7 +190,7 @@ class ConfiguredWarehouse(Warehouse):
         assignment: str = "nearest",
         traffic: str = "new",
     ):
-        if traffic not in ("new", "old"):
+        if traffic not in TRAFFIC_VARIANTS:
             raise ValueError(f"Unknown traffic rules: {traffic!r}")
         inputs = build_run(
             layout=layout,
@@ -198,7 +214,7 @@ class ConfiguredWarehouse(Warehouse):
             rng=seed,
             config=SimulationConfig(
                 assignment=AssignmentParams(strategy=assignment),
-                traffic=TrafficParams() if traffic == "new" else TrafficParams.off(),
+                traffic=TRAFFIC_VARIANTS[traffic],
             ),
         )
         self.nearest_free_slot = inputs.nearest_free_slot
