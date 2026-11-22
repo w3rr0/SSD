@@ -16,6 +16,7 @@ from functools import cache
 import numpy as np
 import pandas as pd
 
+from src.core.config import AssignmentParams, SimulationConfig, TrafficParams
 from src.core.model import Warehouse
 from src.environment.layout import WarehouseLayout
 from src.environment.layout_io import LayoutFile, available_layouts
@@ -154,6 +155,10 @@ class ConfiguredWarehouse(Warehouse):
     A deadlock or livelock does not crash the run: the model stops, the robots
     involved are remembered in ``alert_robots`` and ``stop_reason`` explains
     what happened.
+
+    ``assignment`` is the robot-to-task rule (``nearest`` or
+    ``deadline_battery``). ``traffic="old"`` switches off the traffic rules
+    that prevent deadlocks, to compare with the movement before the fix.
     """
 
     def __init__(
@@ -166,7 +171,11 @@ class ConfiguredWarehouse(Warehouse):
         volume: float = 1.0,
         hours: int = 4,
         seed: int = 1,
+        assignment: str = "nearest",
+        traffic: str = "new",
     ):
+        if traffic not in ("new", "old"):
+            raise ValueError(f"Unknown traffic rules: {traffic!r}")
         inputs = build_run(
             layout=layout,
             num_robots=num_robots,
@@ -187,6 +196,10 @@ class ConfiguredWarehouse(Warehouse):
             orders=inputs.order_list,
             rack_skus=inputs.rack_skus,
             rng=seed,
+            config=SimulationConfig(
+                assignment=AssignmentParams(strategy=assignment),
+                traffic=TrafficParams() if traffic == "new" else TrafficParams.off(),
+            ),
         )
         self.nearest_free_slot = inputs.nearest_free_slot
         self.stop_reason: str | None = None

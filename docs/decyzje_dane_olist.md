@@ -631,9 +631,145 @@ z powtórzeniami. Poniżej decyzje dotyczące tego, jak liczy.
   - D) odsuwanie bezczynnych robotów od stanowisk i lepsze rozładowywanie
     korków.
 
+## 10. Usunięcie zakleszczeń i porównania na spotkanie
+
+Zakleszczenia (sekcja 9) uniemożliwiały porównania: na `main` z 20.11 w 360
+przebiegach po 4 h (5 układów, 4/8/16 robotów, Olist i demo, ×1/×2/×5)
+47% kończyło się zakleszczeniem, w zwykłą dobę udawała się co druga, a w
+szczycie żadna. Zmiana dotyczy logiki ruchu (kod modelu); zgoda użytkownika
+na tę pracę: 22.11. Wszystkie zasady są w `TrafficParams`
+(`src/core/config.py`), `TrafficParams.off()` przywraca stary ruch, żeby dało
+się porównać.
+
+### Co powodowało zakleszczenia (sprawdzone na konkretnych przebiegach)
+- **Czołowe spotkania w alejkach szerokości 1 pola.** Dwa roboty (często oba
+  z regałem) jadą naprzeciw siebie, a żaden nie ma gdzie zjechać, bo pusty
+  robot nie mógł wjechać pod regał. Ok. 60% przypadków.
+- **Stanowisko ma jedno pole dojazdu.** Następny robot czekał na tym polu,
+  więc robot po kompletacji nie mógł wyjechać. Do tego roboty jadące do
+  drugiego stanowiska przejeżdżały przez pole przed pierwszym.
+- **Robot po naładowaniu zostawał na ładowarce** i blokował następnego.
+- **Fałszywe alarmy:** czekanie w kolejce za robotem przy stanowisku (przy
+  długiej kompletacji, np. zamówieniu z wieloma sztukami) model liczył jako
+  brak postępu i po 60 s zgłaszał zakleszczenie.
+- **Błąd:** robot jadący do ładowarki nie miał celu (`_goal_for` szukało
+  zadania kompletacji), więc nie mógł przeliczyć trasy ani wrócić na nią po
+  ustąpieniu miejsca.
+
+### Rozważane opcje
+- A) pusty robot pod regałami, B) kierunki ruchu w alejkach, C) szersze
+  alejki, D) odsuwanie bezczynnych robotów, E) planowanie tras w czasie
+  (rezerwacja pól na konkretne sekundy), F) „interwencja operatora”, czyli
+  rozwiązywanie zakleszczenia z zewnątrz i liczenie takich interwencji.
+- C sprawdzone 20.11: układ `szerokie_alejki` ma podobnie dużo zakleszczeń
+  w dobie (14/27 udanych wobec 13/27). E z definicji usuwa zakleszczenia, ale
+  to przebudowa całego ruchu (kilka dni pracy). F nie jest fizyczne
+  i fałszuje czasy.
+
+### Decyzja: zestaw zasad ruchu (wszystkie włączone domyślnie)
+1. **Pusty robot jeździ i staje pod regałami** (`empty_under_racks`). Tak
+   działa Kiva, a opis projektu wzoruje się na Kiva. Robot z regałem nadal
+   jeździ tylko alejkami, więc rozmieszczenie dalej ma znaczenie. Żeby puste
+   roboty nie jeździły „na skróty” pod całym magazynem, wejście pod regał
+   kosztuje w A* 3 dodatkowe kroki (`rack_cell_cost`).
+2. **Kierunki ruchu w alejkach** (`one_way_aisles`). Wiersze i kolumny, które
+   są w ≥60% alejką, dostają na przemian kierunek (jak ulice jednokierunkowe).
+   Jazda pod prąd jest dozwolona, ale kosztuje 10 dodatkowych kroków
+   (`against_lane_cost`), więc ślepe końce i ostatnie pola przed celem
+   zostają osiągalne. Reguła działa na każdym układzie z `layouts/`, bez
+   ręcznego rysowania kierunków.
+3. **Limit robotów przy stanowisku** (`station_queue_limit = 3`). Robot
+   podnosi regał dopiero, gdy do jego stanowiska jadą lub przy nim stoją mniej
+   niż 3 roboty; inaczej czeka pod regałem (ślepe pole, poza alejkami). Wartość
+   sprawdzona: przy 5 i 8 wszystkie przebiegi Black Friday (16 i 24 roboty,
+   2 seedy) kończą się zakleszczeniem, przy 3 żaden. W prawdziwym Kiva kolejka
+   do stanowiska też ma stałą długość.
+4. **Wolne pole przed zajętym stanowiskiem** (`keep_station_front_free`).
+   Robot z regałem zatrzymuje się pole wcześniej, dopóki przy stanowisku stoi
+   inny robot. Czekanie liczy się jako kolejka do stanowiska (metryki
+   i wykrywanie zastoju).
+5. **Pole przed stanowiskiem lub ładowarką nie jest przejazdem**: wjazd na nie,
+   gdy to nie jest cel, kosztuje 6 dodatkowych kroków (`front_cell_cost`).
+6. **Omijanie stojących robotów** (`replan_after_s = 3`). Robot zablokowany
+   ≥3 s przez robota, który stoi (bez trasy albo w kolejce do stanowiska),
+   liczy nową trasę omijającą wszystkie stojące roboty. Na robota w ruchu
+   dalej czeka.
+7. **Zjazd z ładowarki** po naładowaniu (`leave_charger`).
+8. **Stanowisko najbliższe regałowi** (`nearest_station_slack = 2`).
+   Zamówienie idzie do stanowiska najbliższego jego regałowi spośród
+   stanowisk, które mają najwyżej 2 otwarte zadania więcej niż najmniej
+   obciążone. Wcześniej brane było zawsze najmniej obciążone, więc regał
+   z górnej połowy jechał do dolnego stanowiska przez pole przed górnym.
+- **Poprawki przy okazji:** kolejka za robotem czekającym na stanowisko nie
+  jest zastojem (`_track_progress`), robot jadący do ładowarki ma cel
+  (`_goal_for`).
+- **Wykrywanie zakleszczeń zostaje** jako zabezpieczenie; przebieg, w którym
+  zadziała, liczymy jako nieudany i raportujemy odsetek.
+
+### Wynik
+- **450 przebiegów po 4 h** (te same 360 co 20.11 plus 90 z ABC, w tym Black
+  Friday ×9,5): 7 zakleszczeń (1,6%) zamiast 47%. Olist ×1, ×2, ×5: 0 z 330.
+  Black Friday ×9,5: 4 z 30 (3 w układzie `hala_L`). Demo ×5: 3 z 60.
+- **Cała doba, runner scenariuszy** (S1, 2 układy): zwykły dzień 54/54
+  udanych (było 27/54). Szczyt: układ `szerokie_alejki` 8/8, układ
+  standardowy 0/8, ale 6 z 8 to `TimeoutError`, nie zakleszczenie: magazyn
+  nie zdążył obsłużyć 13 tys. zamówień w 26 h, czyli jest przeciążony.
+- **Testy:** 216/216 (dotąd czerwony `test_demo_stream_of_orders_completes`
+  przechodzi). Dwa testy rysowania SVG i test łańcucha bezczynnych robotów
+  sprawdzają stan w konkretnej sekundzie, więc używają `TrafficParams.off()`
+  (rysowanie i stary mechanizm, a nie ruch). Nowe testy:
+  `tests/test_traffic_rules.py`.
+- **Koszt:** zasady zmieniają trasy, więc wyniki sprzed zmiany (pilotaż
+  z sekcji 9) nie są porównywalne z nowymi.
+
+### Ograniczenie, które widać w Black Friday
+- Przy ×9,5 stanowiska są zajęte tylko ok. 50% czasu, a średni czas
+  realizacji to 8–22 min (zależnie od liczby robotów). Wąskim gardłem jest
+  sam dojazd do stanowiska: jedno pole wjazdu i wyjazdu, a robot czeka, aż
+  poprzedni wyjedzie. Dokładanie robotów ponad 12 pomaga już niewiele
+  (12 → 32 roboty: ok. 11 → 8 min).
+  To cecha układu odniesienia (stanowiska w ścianie, jak w
+  `WarehouseLayout.generate`), a nie błąd; prawdziwe stanowiska Kiva mają
+  przejazd. Do opisania przy wynikach i ewentualnie do sprawdzenia
+  w scenariuszu S3 (więcej stanowisk).
+
+### Skala ruchu w porównaniach i wizualizacji
+- **Problem:** na danych Olist w wizualizacji ruch wyglądał na bardzo mały
+  (start o 8:00, 38 zamówień/h w pierwszej godzinie, 1,04 pozycji na
+  zamówienie), więc różnic między wariantami nie było widać.
+- **Opcje:** A) start o 10:00, B) większy mnożnik bazowy niż ×10, C) pokazywać
+  poziomy obciążenia, które już mają uzasadnienie w danych.
+- **Decyzja:** C. Porównania liczymy na trzech poziomach: zwykły dzień ×1
+  (Olist ×10, sekcja 9), wzmożony ruch ×5 (połowa Black Friday) i Black
+  Friday ×9,5 (1166 zamówień wobec ~123 w średni dzień 2017). Start zostaje
+  o 8:00, profil godzinowy, koszyk i popularność są z danych. Etykieta suwaka
+  w wizualizacji mówi, co znaczą ×1 i ×9,5.
+- **Powód:** użytkownik uznał start o 10:00 za naginanie. B nie ma podstawy
+  w danych. ×9,5 to prawdziwy stosunek szczytu do zwykłego dnia, a ×5 to
+  punkt pośredni do pokazania, gdzie zaczyna się przeciążenie.
+
+### Porównania na spotkanie (`notebooks/porownania.ipynb`)
+- Krótkie przebiegi zamiast całej doby: 4 h od poniedziałku 8:00, 3–5 seedów,
+  równolegle (`src/experiments/compare.py`); całość ok. 2,5 min na 4
+  procesach. Powód: potrzeba szybkich, przykładowych wyników na spotkanie;
+  pełne liczenie zostaje w runnerze scenariuszy.
+- Zawartość: zakleszczenia przed/po, rozmieszczenie (S1), liczba robotów
+  (S1, ×5 i ×9,5), przydział zadań (S6), układy magazynu (dodatkowo).
+- Główne wyniki przykładowe: ABC wobec losowego skraca dystans na zamówienie
+  o 19% przy obu obciążeniach, średni czas realizacji o 14% w zwykły dzień
+  i o 65% przy ×5 (przy 8 robotach losowe zaczyna się korkować).
+  Powrót na najbliższe wolne miejsce nie skraca ani dystansu, ani czasu.
+  Przy ×5 od 12 robotów czas przestaje spadać. Przydział „termin + bateria”
+  nie różni się od „najbliższego robota” (różnica 1–2% w granicach błędu),
+  bo terminy Olist to dni, a przebieg trwa godziny.
+
 ## Sprawy otwarte
-- Sposób usunięcia zakleszczeń (opcje A–D w sekcji 9). Bez tego nie liczymy
-  scenariuszy.
+- Zakleszczenia: rozwiązane zasadami ruchu z sekcji 10 dla zwykłego dnia
+  i ruchu do ×5. Zostaje: kilka przypadków przy Black Friday (głównie układ
+  `hala_L`) i przeciążenie szczytu w całej dobie (`TimeoutError`, runner
+  liczy to jako nieudane; do rozróżnienia w wynikach).
+- Runner scenariuszy powinien odróżniać zakleszczenie od niedokończenia
+  zamówień (przeciążenie).
 - Czym są „pilne zamówienia” w scenariuszu awarii, skoro prawdziwe terminy to
   kilka dni. Model ma pole `Order.urgent`; stary generator oznacza losowy
   udział zamówień (`urgent_share`), a generator Olist jeszcze go nie ustawia.

@@ -3,6 +3,7 @@ from datetime import datetime
 from xml.etree import ElementTree
 
 from src.agents.robot import RobotState
+from src.core.config import SimulationConfig, TrafficParams
 from src.core.model import Warehouse
 from src.environment.layout import WarehouseLayout
 from src.orders.models import Order
@@ -27,7 +28,13 @@ LAYOUT = WarehouseLayout.from_ascii(
 START = datetime(2018, 3, 5, 8, 0)
 
 
-def make_model(orders=None):
+# The SVG tests check what is drawn at a given moment (a carried rack, a
+# planned route). They fix the movement rules from before the deadlock fix so
+# the moment they look at does not depend on traffic rules.
+OLD_TRAFFIC = SimulationConfig(traffic=TrafficParams.off())
+
+
+def make_model(orders=None, config=None):
     rack_skus = {rack: frozenset({f"sku-{rack}"}) for rack in LAYOUT.racks}
     if orders is None:
         orders = [
@@ -35,7 +42,12 @@ def make_model(orders=None):
             for i in range(6)
         ]
     return Warehouse(
-        layout=LAYOUT, num_robots=2, orders=orders, rack_skus=rack_skus, rng=1
+        layout=LAYOUT,
+        num_robots=2,
+        orders=orders,
+        rack_skus=rack_skus,
+        rng=1,
+        config=config,
     )
 
 
@@ -99,7 +111,7 @@ class SnapshotTests(unittest.TestCase):
 
 class SvgTests(unittest.TestCase):
     def test_svg_is_well_formed_and_shows_every_object(self):
-        model = make_model()
+        model = make_model(config=OLD_TRAFFIC)
         model.run_for(20)
 
         svg = render_svg(model, alert_robots=frozenset({"robot-1"}))
@@ -127,7 +139,7 @@ class SvgTests(unittest.TestCase):
                 self.fail("A cell outside the building was drawn")
 
     def test_heat_colours_and_hidden_routes(self):
-        model = make_model()
+        model = make_model(config=OLD_TRAFFIC)
         model.run_for(60)
 
         plain = render_svg(model, show_routes=True)

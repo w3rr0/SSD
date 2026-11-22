@@ -1,7 +1,7 @@
 import unittest
 
 from src.agents.robot import RobotState
-from src.core.config import PickingParams, SimulationConfig
+from src.core.config import PickingParams, SimulationConfig, TrafficParams
 from src.core.model import Warehouse
 from src.environment.layout import WarehouseLayout
 from src.orders.models import Order, OrderLine, PickTask
@@ -479,7 +479,12 @@ class IdleBlockerChainTests(unittest.TestCase):
             layout=layout,
             num_robots=4,
             orders=[],
-            config=SimulationConfig(deadlock_timeout_s=100.0),
+            # The chain mechanism on its own: with the traffic rules the
+            # working robot (which has no real task here) would get through
+            # earlier by replanning and then fail to lift a non-existent rack.
+            config=SimulationConfig(
+                deadlock_timeout_s=100.0, traffic=TrafficParams.off()
+            ),
         )
         working = model.robots[0]
         working.set_route(((3, 0), (4, 0), (5, 0), (6, 0), (7, 0), (8, 0)))
