@@ -756,9 +756,9 @@ się porównać.
 - Zawartość: zakleszczenia przed/po, rozmieszczenie (S1), liczba robotów
   (S1, ×5 i ×9,5), przydział zadań (S6), układy magazynu (dodatkowo),
   wpływ pojedynczych reguł ruchu (niżej).
-- Główne wyniki przykładowe: ABC wobec losowego skraca dystans na zamówienie
-  o 19% przy obu obciążeniach, średni czas realizacji o 14% w zwykły dzień
-  i o 65% przy ×5 (przy 8 robotach losowe zaczyna się korkować).
+- Główne wyniki przykładowe (po zmianach z sekcji 12): ABC wobec losowego
+  skraca dystans na zamówienie o 17–20%, średni czas realizacji o 11% w zwykły
+  dzień i o 60% przy ×5 (przy 8 robotach losowe zaczyna się korkować).
   Powrót na najbliższe wolne miejsce nie skraca ani dystansu, ani czasu.
   Przy ×5 od 12 robotów czas przestaje spadać. Przydział „termin + bateria”
   nie różni się od „najbliższego robota” (różnica 1–2% w granicach błędu),
@@ -789,7 +789,9 @@ Miary: odsetek przebiegów z zakleszczeniem oraz czas i dystans liczone tylko
 z przebiegów bez zakleszczenia. Model nie został zmieniony, tylko sposób
 budowania przebiegu do porównań.
 
-**Wyniki (przykładowe, 5 seedów).**
+**Wyniki (przykładowe, 5 seedów).** *Nieaktualne od 23.11: liczby dla „bez
+przejazdu pod regałami” zawierały błąd modelu, a punkty miały różne floty.
+Poprawione wyniki i wyjaśnienie: sekcja 12.*
 - Bez przejazdu pod regałami magazyn staje nawet w zwykły dzień (60%
   przebiegów przy ×1, 20% przy ×5, 40% przy ×9,5). Gdy nie stanie, dystans na
   zamówienie rośnie o 14–16%, a średni czas realizacji o ok. 21% (×1)
@@ -868,6 +870,99 @@ nie opisuje.
   zakleszczenia od nowa.
 - C) Do wzoru wchodzi czas obsługi powiększony o zmierzony czas przekazania
   stanowiska (M/G/1 z czasem przezbrojenia). Nie rozwiązuje ρ = 0,9.
+
+## 12. Uwagi do porównań z 23.11 (układy i ablacja)
+
+Trzy uwagi po prezentacji `notebooks/porownania.ipynb`. Wszystkie przeliczone
+na kodzie po zmianach; notatnik uruchomiony od nowa (ok. 4 min na 4 procesach).
+
+### Ładowarki i stojące roboty przy regałach
+**Problem.** W układach z generatora (`kiva_standard`, `demo_20x20`) roboty
+startowały w dolnej alejce, która jest jedynym dojazdem do dolnego rzędu
+regałów, a ładowarki stały w ścianie na wysokości rzędu regałów. Robot czekający
+na ładowarkę albo stojący na starcie zasłaniał regał.
+
+**Decyzja.** Generator (`WarehouseLayout.generate`):
+- dodaje na dole **rząd postojowy** (y = 0) pod dolną alejką; regały zaczynają
+  się od y = 2, więc żaden robot na starcie nie dotyka regału,
+- stawia **ładowarki na końcach poprzecznych alejek**; pole przed ładowarką nie
+  sąsiaduje z żadnym regałem,
+- brakujące miejsca startowe (`with_robot_starts`, też dla map rysowanych) są
+  dobierane najpierw z pól, które nie dotykają regału, stanowiska ani ładowarki
+  ani pola dojazdu do nich.
+
+Mapy rysowane (`hala_L`, `szerokie_alejki`, `dwie_hale`) już spełniały ten
+warunek, z wyjątkiem dodatkowych robotów w `dwie_hale`. Testy:
+`tests/test_layout_generator.py`. **Koszt:** `kiva_standard` ma teraz 28 × 14
+pól zamiast 28 × 13, więc wyniki sprzed 23.11 nie są wprost porównywalne
+(np. przy ×5 i 8 robotach, losowe: 143 s → 103 s średniego czasu).
+
+### Układ z dwiema halami
+**Problem.** Środkowa hala miała 17 pól szerokości i była pusta, a trzy
+stanowiska stały w jej dolnej ścianie przesunięte w lewo (x = 13, 18, 23 przy
+prawej hali od x = 31). Każdy regał jechał do stanowiska przez duży przedsionek,
+więc układ wypadał najgorzej z powodu samej odległości, a nie dlatego, że
+„dwie hale” są gorsze.
+
+**Opcje.** A) zostawić i opisać, B) zwęzić strefę kompletacji i ustawić
+stanowiska symetrycznie, C) porównywać układy tylko przy tej samej liczbie
+regałów i odległości.
+
+**Decyzja: B, plus w tabeli e4 kolumna z geometrią.** Strefa kompletacji ma 5
+pól, stanowiska stoją obok siebie (x = 13, 15, 17) przy dolnym przejściu, roboty
+stoją w górnej części strefy. Liczba regałów bez zmian (96). Tabela e4 pokazuje
+teraz liczbę regałów i stanowisk oraz średni dojazd regał → najbliższe
+stanowisko (`layout_geometry` w `src/experiments/compare.py`). C odrzucone:
+układy z `layouts/` celowo różnią się kształtem.
+
+| ABC, 8 robotów, 10 seedów | dojazd [pola] | ×1 czas [s] | ×5 czas [s] | ×5 dystans [m] |
+| --- | --- | --- | --- | --- |
+| `dwie_hale` przed | 17,6 | 27,8 | 160 ± 26 | 58,7 |
+| `dwie_hale` po | 14,6 | 25,0 | 57 ± 9 | 48,7 |
+| `kiva_standard` | 16,5 | 25,4 | 41 ± 3 | 42,9 |
+
+Po poprawce `dwie_hale` przy ×5 nadal jest wolniejszy od `kiva_standard`
+(57 s wobec 41 s), choć średni dojazd ma krótszy: przejścia między halami
+(2 pola w środku, 1 na dole) są wąskim gardłem. To już cecha układu, którą można
+uczciwie opisać.
+
+### Ablacja: „bez przejazdu pod regałami” zakleszczała się częściej w zwykły dzień
+**Problem.** Sekcja 5 notatnika pokazywała 60% zakleszczeń przy ×1, 20% przy ×5
+i 40% przy ×9,5. Więcej zakleszczeń przy mniejszym ruchu jest nielogiczne.
+
+**Co sprawdzono.**
+- Część to szum i nieporównywalne punkty: 5 seedów (3/5 wobec 1/5) oraz 8 robotów
+  przy ×1 i ×5, a 16 przy ×9,5.
+- Ale przy 20 seedach na punkt i tej samej flocie kolejność nadal była zła
+  (8 robotów: 25% / 25% / 45%; 16 robotów: 50% / 65% / 60%), a połowa zakleszczeń
+  przy ×1 następowała w pierwszych minutach. Przejrzane przebiegi pokazały **błąd
+  modelu**: bez przejazdu pod regałami pusty slot po zabranym regale jest ślepą
+  kieszenią między regałami. Bezczynny robot (a) ustępował miejsca właśnie do
+  takiego slotu (`_yield_path` szukał najbliższego wolnego pola) albo (b) zostawał
+  pod regałem, który przed chwilą odstawił (np. czekając na wolną ładowarkę).
+  Robot jadący po ten regał stawał w jedynym wyjeździe z kieszeni i żaden nie mógł
+  ruszyć. Przy ×1 roboty częściej są bezczynne, więc błąd zdarzał się częściej.
+
+**Decyzja.** Nowa reguła `leave_rack_slots` w `TrafficParams` (domyślnie
+włączona, `TrafficParams.off()` ją wyłącza, żeby „stare zasady” zostały stare).
+Działa tylko bez przejazdu pod regałami: ustąpienie miejsca nigdy nie kończy się
+w slocie regału, a bezczynny robot w slocie od razu z niego wyjeżdża. Z przejazdem
+pod regałami nic się nie zmienia (robot może stać pod regałem). Testy:
+`tests/test_traffic_rules.py` (`NoParkingInRackSlotsTests`). Notatnik liczy
+ablację przy 16 robotach na każdym natężeniu i 10 seedach.
+
+**Wynik** (bez przejazdu pod regałami, `kiva_standard` po zmianie, 20 seedów):
+
+| Roboty | ×1 | ×5 | ×9,5 |
+| --- | --- | --- | --- |
+| 8 | 0% | 0% | 0% |
+| 16 | 5% | 20% | 15% |
+
+Pozostałe zakleszczenia (16 robotów) to czołowe spotkania dwóch robotów
+z regałami w alejce szerokości 1 pola, gdy miejsca do zjazdu zajmują bezczynne
+roboty. Różnice 5–20% przy 20 seedach mieszczą się w szumie (1, 4 i 3 przebiegi).
+W notatniku (10 seedów, 16 robotów): 0% / 10% / 10%; dystans na zamówienie
+rośnie o 29% (×1), 26% (×5), 16% (×9,5), czas o 38% (×1) i 31% (×5).
 
 ## Sprawy otwarte
 - Zakleszczenia: rozwiązane zasadami ruchu z sekcji 10 dla zwykłego dnia

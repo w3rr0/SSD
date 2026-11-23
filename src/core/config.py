@@ -160,6 +160,10 @@ class TrafficParams:
     * ``replan_after_s``: a robot blocked this long by a robot that is not
       moving plans a new route around it. 0 switches replanning off.
     * ``leave_charger``: a charged robot drives off the charger cell.
+    * ``leave_rack_slots``: matters only without ``empty_under_racks``. An
+      idle robot does not stay in an empty rack slot or under a rack it put
+      back (a dead-end pocket between racks), and giving way never ends in
+      one.
     * ``nearest_station_slack``: an order goes to the station nearest to its
       rack among stations at most this many open tasks above the least
       loaded one; -1 keeps the old rule (least loaded station).
@@ -174,6 +178,7 @@ class TrafficParams:
     keep_station_front_free: bool = True
     replan_after_s: float = 3.0
     leave_charger: bool = True
+    leave_rack_slots: bool = True
     nearest_station_slack: int = 2
 
     def __post_init__(self) -> None:
@@ -194,6 +199,7 @@ class TrafficParams:
             keep_station_front_free=False,
             replan_after_s=0.0,
             leave_charger=False,
+            leave_rack_slots=False,
             nearest_station_slack=-1,
         )
 

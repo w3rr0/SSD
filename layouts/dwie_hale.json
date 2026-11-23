@@ -1,20 +1,20 @@
 {
   "name": "Dwie hale i strefa kompletacji",
-  "description": "Regały w dwóch bocznych halach, stanowiska w środkowej hali. Hale łączą przejścia szerokości 2 pól.",
+  "description": "Regały w dwóch bocznych halach, między nimi wąska strefa kompletacji (5 pól) ze stanowiskami przy dolnym przejściu i miejscem postoju robotów u góry. Hale łączą przejście szerokości 2 pól w środku i 1 pola na dole.",
   "map": [
-    "###########################################",
-    "#...........#.................#...........#",
-    "#.RRRR.RRRR.#.................#.RRRR.RRRR.#",
-    "#.RRRR.RRRR.#.................#.RRRR.RRRR.#",
-    "#.........................................#",
-    "#.........................................#",
-    "#.RRRR.RRRR.#.................#.RRRR.RRRR.#",
-    "#.RRRR.RRRR.#.................#.RRRR.RRRR.#",
-    "#...........#.................#...........#",
-    "#.RRRR.RRRR.#.................#.RRRR.RRRR.#",
-    "#.RRRR.RRRR.#.................#.RRRR.RRRR.#",
-    "#.........................................#",
-    "#...........#.....BBBBBB......#...........#",
-    "##C##########S####S####S###############C###"
+    "###############################",
+    "#...........#BBBBB#...........#",
+    "#.RRRR.RRRR.#BBBBB#.RRRR.RRRR.#",
+    "#.RRRR.RRRR.#BBBBB#.RRRR.RRRR.#",
+    "#.............................#",
+    "#.............................#",
+    "#.RRRR.RRRR.#.....#.RRRR.RRRR.#",
+    "#.RRRR.RRRR.#.....#.RRRR.RRRR.#",
+    "#...........#.....#...........#",
+    "#.RRRR.RRRR.#.....#.RRRR.RRRR.#",
+    "#.RRRR.RRRR.#.....#.RRRR.RRRR.#",
+    "#.............................#",
+    "#...........#.....#...........#",
+    "##C##########S#S#S##########C##"
   ]
 }
