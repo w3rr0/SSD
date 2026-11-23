@@ -16,6 +16,7 @@ from functools import cache
 import numpy as np
 import pandas as pd
 
+from src.core.config import AssignmentParams, SimulationConfig, TrafficParams
 from src.core.model import Warehouse
 from src.environment.layout import WarehouseLayout
 from src.environment.layout_io import LayoutFile, available_layouts
@@ -38,6 +39,21 @@ START = pd.Timestamp("2018-03-05 08:00")
 OLIST_BASE_VOLUME = 10.0
 # Demo orders at 1x: one order a minute on average.
 DEMO_ORDERS_PER_HOUR = 60.0
+
+# Traffic rule sets for comparisons: "new" (all rules), "old" (none, the
+# movement before the deadlock fix) and "no_<rule>" (all rules but one), to
+# show what each rule alone is worth.
+TRAFFIC_VARIANTS: dict[str, TrafficParams] = {
+    "new": TrafficParams(),
+    "old": TrafficParams.off(),
+    "no_under_racks": TrafficParams(empty_under_racks=False),
+    "no_route_costs": TrafficParams(one_way_aisles=False),
+    "no_queue_limit": TrafficParams(station_queue_limit=0),
+    "no_front_free": TrafficParams(keep_station_front_free=False),
+    "no_replan": TrafficParams(replan_after_s=0.0),
+    "no_leave_charger": TrafficParams(leave_charger=False),
+    "no_nearest_station": TrafficParams(nearest_station_slack=-1),
+}
 
 
 @cache
@@ -154,6 +170,11 @@ class ConfiguredWarehouse(Warehouse):
     A deadlock or livelock does not crash the run: the model stops, the robots
     involved are remembered in ``alert_robots`` and ``stop_reason`` explains
     what happened.
+
+    ``assignment`` is the robot-to-task rule (``nearest`` or
+    ``deadline_battery``). ``traffic="old"`` switches off the traffic rules
+    that prevent deadlocks, to compare with the movement before the fix;
+    ``traffic="no_<rule>"`` switches off one rule (see ``TRAFFIC_VARIANTS``).
     """
 
     def __init__(
@@ -166,7 +187,11 @@ class ConfiguredWarehouse(Warehouse):
         volume: float = 1.0,
         hours: int = 4,
         seed: int = 1,
+        assignment: str = "nearest",
+        traffic: str = "new",
     ):
+        if traffic not in TRAFFIC_VARIANTS:
+            raise ValueError(f"Unknown traffic rules: {traffic!r}")
         inputs = build_run(
             layout=layout,
             num_robots=num_robots,
@@ -187,6 +212,10 @@ class ConfiguredWarehouse(Warehouse):
             orders=inputs.order_list,
             rack_skus=inputs.rack_skus,
             rng=seed,
+            config=SimulationConfig(
+                assignment=AssignmentParams(strategy=assignment),
+                traffic=TRAFFIC_VARIANTS[traffic],
+            ),
         )
         self.nearest_free_slot = inputs.nearest_free_slot
         self.stop_reason: str | None = None

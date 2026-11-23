@@ -14,7 +14,7 @@ from src.environment.layout import Coordinate, WarehouseLayout
 from src.metrics.baseline import SimulationMetrics
 from src.orders.models import Order, OrderLine, OrderStatus, PickTask, TaskStatus
 from src.orders.generator import random_orders
-from src.pipeline.pathfinding import NoPathError, astar_path
+from src.pipeline.pathfinding import NoPathError, TrafficRules, astar_path
 from src.pipeline.reservations import (
     ConflictResolver,
     DeadlockError,
@@ -117,6 +117,26 @@ class Warehouse(Model):
             position: station_id
             for station_id, position in self.layout.stations.items()
         }
+        traffic = self.config.traffic
+        self.traffic_rules = (
+            TrafficRules.from_layout(
+                self.layout,
+                against_lane_cost=traffic.against_lane_cost,
+                rack_cell_cost=traffic.rack_cell_cost,
+                front_cell_cost=traffic.front_cell_cost,
+            )
+            if traffic.one_way_aisles
+            else None
+        )
+        # Walkable cells next to each station: the way in and out.
+        self.station_fronts = {
+            station_id: frozenset(
+                cell
+                for cell in self.layout.neighbors(position)
+                if self.layout.is_walkable(cell)
+            )
+            for station_id, position in self.layout.stations.items()
+        }
         for rack_id, rack in self.racks.items():
             self.grid.place_agent(rack, self.layout.racks[rack_id])
         for station_id, station in self.stations.items():
@@ -145,6 +165,8 @@ class Warehouse(Model):
         self._yield_last_attempt = float("-inf")
         self._progress_since: dict[str, float] = {}
         self._progress_signature: dict[str, tuple[object, ...]] = {}
+        # (blocker, blocked cell, since) for robots waiting behind another.
+        self._blocked_since: dict[str, tuple[str, Coordinate, float]] = {}
         self.failure_count = 0
         self.repair_times: list[float] = []
         self._failed_at: dict[str, float] = {}
@@ -195,7 +217,7 @@ class Warehouse(Model):
         Greedy set cover: repeatedly take the rack holding the most remaining
         lines (ties: closer to the station, then rack ID).
         """
-        station_id = order.station_id or self._choose_station()
+        station_id = order.station_id or self._choose_station(order)
         order.station_id = station_id
         station_position = self.layout.stations[station_id]
         remaining = {line.sku: line for line in order.lines}
@@ -227,15 +249,42 @@ class Warehouse(Model):
             self.tasks.append(task)
             self.tasks_by_id[task.task_id] = task
 
-    def _choose_station(self) -> str:
-        """Station with the fewest unfinished tasks (ties: station ID)."""
+    def _choose_station(self, order: Order | None = None) -> str:
+        """Station with the fewest unfinished tasks (ties: station ID).
+
+        With ``TrafficParams.nearest_station_slack`` >= 0 the station nearest
+        to the order's first rack is taken among the stations whose load is
+        within that many tasks of the least loaded one. A rack in the upper
+        half then goes to the upper station instead of crossing the space in
+        front of it on the way to the other one.
+        """
         open_tasks = {station_id: 0 for station_id in self.stations}
         # A completed order has only completed tasks, so open orders suffice.
-        for order in self._open_orders:
-            for task in order.tasks:
+        for open_order in self._open_orders:
+            for task in open_order.tasks:
                 if task.status is not TaskStatus.COMPLETED:
                     open_tasks[task.station_id] += 1
-        return min(open_tasks, key=lambda sid: (open_tasks[sid], sid))
+        least = min(open_tasks, key=lambda sid: (open_tasks[sid], sid))
+        slack = self.config.traffic.nearest_station_slack
+        if slack < 0 or order is None or not order.lines:
+            return least
+        skus = {line.sku for line in order.lines}
+        racks = {rid for sku in skus for rid in self.racks_by_sku.get(sku, ())}
+        if not racks:
+            return least
+        first = min(racks, key=lambda rid: (-len(self.racks[rid].skus & skus), rid))
+        position = self.racks[first].pos
+        close_enough = [
+            sid for sid, n in open_tasks.items() if n <= open_tasks[least] + slack
+        ]
+        return min(
+            close_enough,
+            key=lambda sid: (
+                self._manhattan(position, self.layout.stations[sid]),
+                open_tasks[sid],
+                sid,
+            ),
+        )
 
     def _default_robot_configs(self, num_robots: int) -> tuple[RobotConfig, ...]:
         if num_robots <= 0:
@@ -317,6 +366,7 @@ class Warehouse(Model):
         self._record_station_waits()
         self._record_traffic_waits(standing)
         self._clear_idle_blockers()
+        self._replan_around_standing()
         self._check_deadlock()
         self.running = not self.all_orders_completed
 
@@ -349,6 +399,40 @@ class Warehouse(Model):
         leaving the full lookahead gap empty. The far end of the previous,
         longer window is released to make that switch effective.
         """
+        self._extend_reservation(robot, preempt=preempt)
+        if self.config.traffic.keep_station_front_free:
+            self._hold_before_busy_station(robot)
+
+    def _hold_before_busy_station(self, robot: Robot) -> None:
+        """Keep the front cell of a busy station free for the robot leaving it.
+
+        A station has one way in and out in a Kiva layout. If the next robot
+        waits on that cell, the robot at the station cannot leave and both
+        wait for each other. So a robot bringing a rack stops one cell earlier
+        while another robot is at its station. That wait is station queue
+        time (see ``_record_station_waits``), not a stall.
+        """
+        if robot.state is not RobotState.TO_STATION:
+            return
+        task = self._task_of(robot)
+        if task is None:
+            return
+        station = self.layout.stations[task.station_id]
+        route = robot.route
+        try:
+            index = route.index(station)
+        except ValueError:
+            return
+        if index == 0:
+            return
+        front = route[index - 1]
+        holder = self.reservations.owner(station)
+        if holder in (None, robot.robot_id) or robot.pos == front:
+            return
+        if self.reservations.owner(front) == robot.robot_id:
+            self.reservations.release_from(robot.robot_id, front)
+
+    def _extend_reservation(self, robot: Robot, *, preempt: bool = False) -> None:
         if not preempt and self._follows_same_direction(robot):
             limit = self.config.follow_lookahead + 1
             self.reservations.trim(robot.robot_id, limit)
@@ -444,11 +528,16 @@ class Warehouse(Model):
                 continue
             if not robot.blocked or robot.blocked_cell is None:
                 continue
-            station_id = self.station_by_position.get(robot.blocked_cell)
-            if station_id is None:
-                continue
             task = self._task_of(robot)
-            if task is None or task.station_id != station_id:
+            if task is None:
+                continue
+            station_id = self.station_by_position.get(robot.blocked_cell)
+            if station_id is None and robot.blocked_cell in self.station_fronts.get(
+                task.station_id, ()
+            ):
+                # Held before the front cell of its busy station.
+                station_id = task.station_id
+            if task.station_id != station_id:
                 continue
             self._station_wait_started[robot.robot_id] = float(self.time)
 
@@ -635,7 +724,7 @@ class Warehouse(Model):
         a side aisle that the rest of the chain still needs.
         """
         blocked = (
-            self._obstacles()
+            self._obstacles(robot)
             | set(self.layout.blocked)
             | {
                 cell
@@ -713,9 +802,7 @@ class Warehouse(Model):
             self._mark_waiting(robot, holder, goal)
             return
         try:
-            route = astar_path(
-                self.layout, robot.pos, goal, obstacles=self._obstacles()
-            )
+            route = self._route(robot.pos, goal, robot)
         except NoPathError:
             return
         if len(route) > 1:
@@ -745,6 +832,13 @@ class Warehouse(Model):
         robot.blocked_by = holder_id
 
     def _goal_for(self, robot: Robot) -> Coordinate | None:
+        # A robot on its way to a charger has no pick task, so the charger is
+        # checked first; before, such a robot had no goal and could neither
+        # replan nor resume after giving way.
+        if robot.state is RobotState.TO_CHARGER:
+            if robot.charger_id is None:
+                return None
+            return self.layout.chargers[robot.charger_id]
         task = self._task_of(robot)
         if task is None:
             return None
@@ -834,6 +928,12 @@ class Warehouse(Model):
             self._progress_since.pop(robot.robot_id, None)
             self._progress_signature.pop(robot.robot_id, None)
             return
+        if robot.robot_id in self._station_wait_started:
+            # Queueing for a station (in front of it, or behind a robot that
+            # is) is expected waiting, however long the picks take.
+            self._progress_since.pop(robot.robot_id, None)
+            self._progress_signature.pop(robot.robot_id, None)
+            return
         if self._waiting_for_repair(robot):
             # The robot cannot move because a failed robot is in the way.
             # That is expected downtime, not a liveness bug.
@@ -918,7 +1018,7 @@ class Warehouse(Model):
                         "Assignment strategy returned a robot that is not free: "
                         f"{getattr(robot, 'robot_id', robot)!r}"
                     )
-                route = self._route(robot.pos, rack.pos)
+                route = self._route(robot.pos, rack.pos, robot)
                 task.start(robot.robot_id, self.time)
                 order.start(self.time)
                 rack.reserved_by_task = task.task_id
@@ -967,7 +1067,7 @@ class Warehouse(Model):
         for charger in free:
             try:
                 route = self._route(
-                    robot.pos, self.layout.chargers[charger.charger_id]
+                    robot.pos, self.layout.chargers[charger.charger_id], robot
                 )
             except NoPathError:
                 continue
@@ -982,7 +1082,7 @@ class Warehouse(Model):
         position = self.layout.chargers[charger.charger_id]
         if robot.pos != position:
             # A yield detour can end away from the charger; drive back first.
-            robot.set_route(self._route(robot.pos, position))
+            robot.set_route(self._route(robot.pos, position, robot))
             return
         robot.transition(RobotState.CHARGING)
         charger.occupy(robot)
@@ -993,20 +1093,87 @@ class Warehouse(Model):
         """Event handler: the charger brought ``robot`` back to full."""
         robot.battery = self.config.robot.battery_capacity_pct
         robot.finish_charging()
+        if self.config.traffic.leave_charger:
+            # A charger has one way in, like a station: a robot parked on it
+            # would block the next robot that needs to charge.
+            route = self._yield_path(robot)
+            if route is not None:
+                self._begin_yield(robot, route)
 
-    def _obstacles(self) -> set[Coordinate]:
-        """Cells blocked right now: standing racks, stations and chargers."""
+    def _obstacles(self, robot: Robot | None = None) -> set[Coordinate]:
+        """Cells blocked right now: standing racks, stations and chargers.
+
+        With ``TrafficParams.empty_under_racks`` a robot that carries no rack
+        fits under standing racks, so for it only stations and chargers block.
+        """
+        fixed = set(self.layout.stations.values()) | set(
+            self.layout.chargers.values()
+        )
+        if (
+            robot is not None
+            and robot.carrying_rack_id is None
+            and self.config.traffic.empty_under_racks
+        ):
+            return fixed
         standing_racks = {
             rack.pos for rack in self.racks.values() if rack.carried_by is None
         }
-        return (
-            standing_racks
-            | set(self.layout.stations.values())
-            | set(self.layout.chargers.values())
+        return standing_racks | fixed
+
+    def _route(
+        self,
+        start: Coordinate,
+        goal: Coordinate,
+        robot: Robot | None = None,
+        avoid: Iterable[Coordinate] = (),
+    ) -> tuple[Coordinate, ...]:
+        obstacles = self._obstacles(robot) | set(avoid)
+        return astar_path(
+            self.layout, start, goal, obstacles=obstacles, rules=self.traffic_rules
         )
 
-    def _route(self, start: Coordinate, goal: Coordinate) -> tuple[Coordinate, ...]:
-        return astar_path(self.layout, start, goal, obstacles=self._obstacles())
+    def _replan_around_standing(self) -> None:
+        """Route a robot around a robot that stands still in its way.
+
+        Waiting is right when the blocker is moving, but a robot that stands
+        (waiting under a rack, parked after a detour) may stay there for long.
+        After ``replan_after_s`` the blocked robot plans a new route that
+        avoids every standing robot.
+        """
+        delay = self.config.traffic.replan_after_s
+        if delay <= 0:
+            return
+        now = float(self.time)
+        for robot in self.robots:
+            if not robot.blocked or robot.blocked_by is None or robot.yielding:
+                self._blocked_since.pop(robot.robot_id, None)
+                continue
+            key = (robot.blocked_by, robot.blocked_cell)
+            first = self._blocked_since.get(robot.robot_id)
+            if first is None or first[:2] != key:
+                self._blocked_since[robot.robot_id] = (*key, now)
+                continue
+            if now - first[2] < delay:
+                continue
+            blocker = self.robot_by_id.get(robot.blocked_by)
+            if blocker is None or not self._is_standing(blocker):
+                continue  # the blocker is moving; keep waiting
+            goal = self._goal_for(robot)
+            if goal is None or goal == blocker.pos:
+                continue
+            standing = {
+                other.pos
+                for other in self.robots
+                if other is not robot
+                and self._is_standing(other)
+                and other.pos != goal
+            }
+            try:
+                route = self._route(robot.pos, goal, robot, avoid=standing)
+            except NoPathError:
+                continue
+            robot.set_route(route)
+            self._blocked_since[robot.robot_id] = (*key, now)
 
     def _advance_order_state(self, robot: Robot) -> None:
         """React to a robot that reached the end of its route."""
@@ -1024,16 +1191,46 @@ class Warehouse(Model):
         elif robot.state is RobotState.TO_CHARGER:
             self._arrive_at_charger(robot)
 
+    def _is_standing(self, robot: Robot) -> bool:
+        """Whether ``robot`` will stay where it is for a while.
+
+        A robot without a route stands; so does a robot queueing for a
+        station, whose route only continues when the picker is done.
+        """
+        return not robot.route or robot.robot_id in self._station_wait_started
+
     def _pick_up_rack(self, robot: Robot) -> None:
         task = self.tasks_by_id[robot.assigned_task_id]
         rack = self.racks[task.rack_id]
         if robot.pos != rack.pos:
             raise RuntimeError(f"Robot {robot.robot_id} is not under {rack.rack_id}")
+        if self._station_is_full(task.station_id, robot):
+            # Wait under the rack (a dead-end slot, off the aisles) instead of
+            # joining a queue that would fill the space around the station.
+            return
         robot.carrying_rack_id = rack.rack_id
         rack.carried_by = robot.robot_id
         station_position = self.layout.stations[task.station_id]
-        robot.set_route(self._route(robot.pos, station_position))
+        robot.set_route(self._route(robot.pos, station_position, robot))
         robot.transition(RobotState.TO_STATION)
+
+    def _station_is_full(self, station_id: str, robot: Robot) -> bool:
+        """Whether ``station_queue_limit`` robots already serve ``station_id``."""
+        limit = self.config.traffic.station_queue_limit
+        if limit <= 0:
+            return False
+        heading = 0
+        for other in self.robots:
+            if other is robot or other.state not in (
+                RobotState.TO_STATION,
+                RobotState.QUEUED,
+                RobotState.PICKING,
+            ):
+                continue
+            task = self._task_of(other)
+            if task is not None and task.station_id == station_id:
+                heading += 1
+        return heading >= limit
 
     def _arrive_at_station(self, robot: Robot) -> None:
         task = self.tasks_by_id[robot.assigned_task_id]
@@ -1057,7 +1254,7 @@ class Warehouse(Model):
             self._completed_orders += 1
         rack = self.racks[task.rack_id]
         rack.trips += 1
-        robot.set_route(self._route(robot.pos, self.return_location(rack)))
+        robot.set_route(self._route(robot.pos, self.return_location(rack), robot))
         robot.transition(RobotState.RETURNING_RACK)
 
     def return_location(self, rack: Rack) -> Coordinate:

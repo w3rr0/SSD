@@ -142,6 +142,63 @@ class AssignmentParams:
 
 
 @dataclass(frozen=True, slots=True)
+class TrafficParams:
+    """Traffic rules that keep robots out of deadlocks.
+
+    See ``docs/decyzje_dane_olist.md`` (section on deadlocks) for why each
+    rule exists and how much it changes.
+
+    * ``empty_under_racks``: a robot without a rack may drive and park under
+      standing racks, as Kiva drives do.
+    * ``one_way_aisles`` with ``against_lane_cost``, ``rack_cell_cost`` and
+      ``front_cell_cost``: route costs from :class:`TrafficRules`.
+    * ``station_queue_limit``: a robot lifts its rack only when fewer than
+      this many robots are bringing racks to (or are at) its station;
+      otherwise it waits under the rack. 0 switches the limit off.
+    * ``keep_station_front_free``: a robot does not enter the front cell of a
+      station while another robot is at the station, so that robot can leave.
+    * ``replan_after_s``: a robot blocked this long by a robot that is not
+      moving plans a new route around it. 0 switches replanning off.
+    * ``leave_charger``: a charged robot drives off the charger cell.
+    * ``nearest_station_slack``: an order goes to the station nearest to its
+      rack among stations at most this many open tasks above the least
+      loaded one; -1 keeps the old rule (least loaded station).
+    """
+
+    empty_under_racks: bool = True
+    one_way_aisles: bool = True
+    against_lane_cost: int = 10
+    rack_cell_cost: int = 3
+    front_cell_cost: int = 6
+    station_queue_limit: int = 3
+    keep_station_front_free: bool = True
+    replan_after_s: float = 3.0
+    leave_charger: bool = True
+    nearest_station_slack: int = 2
+
+    def __post_init__(self) -> None:
+        if min(self.against_lane_cost, self.rack_cell_cost, self.front_cell_cost) < 0:
+            raise ValueError("Traffic costs cannot be negative")
+        if self.station_queue_limit < 0:
+            raise ValueError("Station queue limit cannot be negative")
+        if self.replan_after_s < 0:
+            raise ValueError("Replanning delay cannot be negative")
+
+    @classmethod
+    def off(cls) -> "TrafficParams":
+        """The movement rules before the deadlock fix (for comparisons)."""
+        return cls(
+            empty_under_racks=False,
+            one_way_aisles=False,
+            station_queue_limit=0,
+            keep_station_front_free=False,
+            replan_after_s=0.0,
+            leave_charger=False,
+            nearest_station_slack=-1,
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class SimulationConfig:
     """Units of the simulation.
 
@@ -158,7 +215,9 @@ class SimulationConfig:
     is how many detours a working robot may take on one leg (e.g. on its way
     to a rack) before the model reports a livelock. ``failures`` controls the
     optional failure/repair process; it is disabled by default. ``assignment``
-    selects the robot-to-task rule and its weights.
+    selects the robot-to-task rule and its weights. ``traffic`` holds the
+    rules that prevent deadlocks (``TrafficParams.off()`` restores the old
+    movement).
     """
 
     TICK_S = 1.0
@@ -168,6 +227,7 @@ class SimulationConfig:
     picking: PickingParams = field(default_factory=PickingParams)
     failures: FailureParams = field(default_factory=FailureParams)
     assignment: AssignmentParams = field(default_factory=AssignmentParams)
+    traffic: TrafficParams = field(default_factory=TrafficParams)
     reservation_lookahead: int = 3
     follow_lookahead: int = 1
     deadlock_timeout_s: float = 60.0

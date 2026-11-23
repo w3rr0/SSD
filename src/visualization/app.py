@@ -55,7 +55,7 @@ model_params = {
     },
     "volume": {
         "type": "SliderFloat", "value": 1.0, "min": 0.1, "max": 10.0, "step": 0.1,
-        "label": "Natężenie ×",
+        "label": "Natężenie × (1 = zwykły dzień, 9,5 = Black Friday)",
     },
     "hours": {
         "type": "SliderInt", "value": 4, "min": 1, "max": 24, "step": 1,
