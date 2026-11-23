@@ -9,11 +9,13 @@ Results are cached in a CSV next to the notebook output: running the
 notebook again only computes runs that are not in the file yet.
 """
 
+from collections import deque
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 import pandas as pd
 
+from src.environment.layout import WarehouseLayout
 from src.experiments.build import make_warehouse
 from src.experiments.record import run_and_record
 
@@ -132,3 +134,46 @@ def summary(frame: pd.DataFrame, by: list[str], metrics: list[str]) -> pd.DataFr
                 row[metric + "_ci"] = None
         rows.append(row)
     return pd.DataFrame(rows)
+
+
+def layout_geometry(layout: WarehouseLayout) -> dict:
+    """Size of a layout and how far its racks are from the stations.
+
+    ``rack_to_station_cells`` is the mean shortest drive, in cells, from a
+    rack slot to the nearest picking station along aisles (racks, stations
+    and chargers are obstacles). It tells whether a layout is quicker
+    because of its traffic or simply because its racks are closer.
+    """
+    obstacles = (
+        set(layout.racks.values())
+        | set(layout.stations.values())
+        | set(layout.chargers.values())
+    )
+    from_station = []
+    for station in layout.stations.values():
+        dist = {station: 0}
+        queue = deque([station])
+        while queue:
+            cell = queue.popleft()
+            for nxt in layout.neighbors(cell):
+                if nxt in dist or nxt in layout.blocked or nxt in obstacles:
+                    continue
+                dist[nxt] = dist[cell] + 1
+                queue.append(nxt)
+        from_station.append(dist)
+    nearest = []
+    for rack in layout.racks.values():
+        reach = [
+            d[cell] + 1
+            for d in from_station
+            for cell in layout.neighbors(rack)
+            if cell in d
+        ]
+        nearest.append(min(reach))
+    return {
+        "racks": len(layout.racks),
+        "stations": len(layout.stations),
+        "floor_cells": len(layout.floor),
+        "rack_to_station_cells": sum(nearest) / len(nearest),
+        "rack_to_station_max": max(nearest),
+    }

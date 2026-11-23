@@ -22,7 +22,7 @@ class LayoutGeneratorTests(unittest.TestCase):
         self.assertEqual(len(layout.stations), 2)
         self.assertEqual(len(layout.chargers), 1)
         self.assertEqual(len(layout.robot_starts), 6)
-        self.assertEqual((layout.width, layout.height), (3 + 3 * 5 + 1, 1 + 2 * 3))
+        self.assertEqual((layout.width, layout.height), (3 + 3 * 5 + 1, 2 + 2 * 3))
 
     def test_every_rack_is_reachable_from_every_station(self):
         layout = WarehouseLayout.generate(num_robots=1)
@@ -40,6 +40,27 @@ class LayoutGeneratorTests(unittest.TestCase):
 
         for charger in layout.chargers.values():
             self.assertEqual(astar_path(layout, start, charger)[-1], charger)
+
+    def test_chargers_and_robot_starts_do_not_block_racks(self):
+        layout = WarehouseLayout.generate(num_chargers=3, num_robots=12)
+        racks = set(layout.racks.values())
+
+        for name, start in layout.robot_starts.items():
+            with self.subTest(robot=name):
+                self.assertFalse(any(n in racks for n in layout.neighbors(start)))
+        for name, charger in layout.chargers.items():
+            front = [n for n in layout.neighbors(charger) if layout.is_walkable(n)]
+            with self.subTest(charger=name):
+                self.assertTrue(front)
+                for cell in front:
+                    self.assertFalse(any(n in racks for n in layout.neighbors(cell)))
+
+    def test_extra_robot_starts_prefer_cells_away_from_racks(self):
+        layout = WarehouseLayout.generate(num_robots=1).with_robot_starts(20)
+        racks = set(layout.racks.values())
+
+        for start in layout.robot_starts.values():
+            self.assertFalse(any(n in racks for n in layout.neighbors(start)))
 
     def test_extra_space_becomes_aisles(self):
         layout = WarehouseLayout.generate(

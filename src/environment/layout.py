@@ -101,15 +101,14 @@ class WarehouseLayout:
         """This layout with at least ``count`` robot start cells.
 
         Starts defined in the layout come first; missing ones are taken from
-        free aisle cells, bottom row first, like ``generate`` does.
+        free aisle cells, bottom row first, like ``generate`` does. Cells
+        that touch no rack, station or charger go first: a robot parked
+        there does not cut anybody off from a rack.
         """
         if count <= len(self.robot_starts):
             return self
         taken = set(self.robot_starts.values())
-        free = sorted(
-            (cell for cell in self.aisles() if cell not in taken),
-            key=lambda cell: (cell[1], cell[0]),
-        )
+        free = self._parking_order(cell for cell in self.aisles() if cell not in taken)
         missing = count - len(self.robot_starts)
         if len(free) < missing:
             raise ValueError(
@@ -124,6 +123,32 @@ class WarehouseLayout:
                 number += 1
             starts[f"robot-{number}"] = cell
         return replace(self, robot_starts=starts)
+
+    def _parking_order(self, cells) -> list[Coordinate]:
+        """``cells`` ordered as robot parking spots, best first.
+
+        A parked robot must not cut anybody off: cells next to a rack,
+        station or charger come last, cells on or next to the way into a
+        station or charger come before them, the rest first. Within a group
+        the bottom row goes first, left to right.
+        """
+        racks = set(self.racks.values())
+        docks = set(self.stations.values()) | set(self.chargers.values())
+        fronts = {
+            n for dock in docks for n in self.neighbors(dock) if n not in self.blocked
+        }
+
+        def key(cell: Coordinate) -> tuple[int, int, int]:
+            around = set(self.neighbors(cell))
+            if around & (racks | docks):
+                rank = 2
+            elif cell in fronts or around & fronts:
+                rank = 1
+            else:
+                rank = 0
+            return (rank, cell[1], cell[0])
+
+        return sorted(cells, key=key)
 
     def unreachable(self) -> list[str]:
         """Names of racks, stations and chargers robots cannot get to.
@@ -185,9 +210,9 @@ class WarehouseLayout:
         block_length = 4
         block_depth = 2
         columns = (width - cls._LEFT_MARGIN - 1) // (block_length + 1)
-        rows = (height - 1) // (block_depth + 1)
+        rows = (height - 2) // (block_depth + 1)
         if columns < 1 or rows < 1:
-            raise ValueError("Demo layout needs at least 9 x 4 cells")
+            raise ValueError("Demo layout needs at least 9 x 5 cells")
         return cls.generate(
             block_columns=columns,
             block_rows=rows,
@@ -224,11 +249,16 @@ class WarehouseLayout:
             x>=3  rack blocks (block_length x block_depth) with aisles
                   between them on every side
             last  chargers on the right wall, the rest of the wall blocked
+            y=0   parking row for idle robots, below the bottom aisle
 
         Every rack touches an aisle when ``block_depth <= 2``, so it can be
         reached even though standing racks are obstacles. ``width`` and
-        ``height`` may enlarge the grid; the extra cells are aisles. Robots
-        start on the bottom aisle row, then the next free aisle cells.
+        ``height`` may enlarge the grid; the extra cells are aisles.
+
+        Nothing that robots stand on for long blocks a rack: robots start on
+        the parking row (y=0), which no rack touches, and chargers face the
+        ends of the cross aisles, so a robot charging or waiting for a
+        charger stands at an aisle crossing, not next to a rack.
         """
         if min(block_columns, block_rows, block_length, block_depth) <= 0:
             raise ValueError("Block counts and sizes must be positive")
@@ -240,7 +270,8 @@ class WarehouseLayout:
             raise ValueError("Invalid number of chargers or robots")
 
         min_width = cls._LEFT_MARGIN + block_columns * (block_length + 1) + 1
-        min_height = 1 + block_rows * (block_depth + 1)
+        # Parking row (y=0) + bottom aisle (y=1) + blocks with an aisle above.
+        min_height = 2 + block_rows * (block_depth + 1)
         width = min_width if width is None else width
         height = min_height if height is None else height
         if width < min_width or height < min_height:
@@ -253,7 +284,7 @@ class WarehouseLayout:
 
         racks: dict[str, Coordinate] = {}
         for block_row in range(block_rows):
-            y0 = 1 + block_row * (block_depth + 1)
+            y0 = 2 + block_row * (block_depth + 1)
             for dy in range(block_depth):
                 for block_column in range(block_columns):
                     x0 = cls._LEFT_MARGIN + block_column * (block_length + 1)
@@ -267,37 +298,41 @@ class WarehouseLayout:
             f"station-{i + 1}": (0, y) for i, y in enumerate(spread(num_stations))
         }
         charger_x = width - 1
+        # Rows whose cell next to the right wall touches no rack: the cross
+        # aisles between blocks and any extra rows on top (not the parking
+        # row, which belongs to idle robots).
+        rack_rows = {y for _, y in racks.values()}
+        free_rows = [y for y in range(1, height) if y not in rack_rows]
+        if num_chargers > len(free_rows):
+            raise ValueError("Too many chargers for the cross aisles")
         chargers = {
-            f"charger-{i + 1}": (charger_x, y)
-            for i, y in enumerate(spread(num_chargers))
+            f"charger-{i + 1}": (
+                charger_x,
+                free_rows[int((i + 0.5) * len(free_rows) / num_chargers)],
+            )
+            for i in range(num_chargers)
         }
         walls = {(0, y) for y in range(height)} | {
             (charger_x, y) for y in range(height)
         }
         blocked = walls - set(stations.values()) - set(chargers.values())
 
-        occupied = set(racks.values()) | walls
-        free_cells = [
-            (x, y)
-            for y in range(height)
-            for x in range(width)
-            if (x, y) not in occupied
-        ]
+        layout = cls(
+            width=width,
+            height=height,
+            blocked=frozenset(blocked),
+            racks=racks,
+            stations=stations,
+            chargers=chargers,
+        )
+        free_cells = layout._parking_order(layout.aisles())
         if len(free_cells) < num_robots:
             raise ValueError("Not enough aisle cells for the robots")
         robot_starts = {
             f"robot-{i + 1}": position
             for i, position in enumerate(free_cells[:num_robots])
         }
-        return cls(
-            width=width,
-            height=height,
-            blocked=frozenset(blocked),
-            racks=racks,
-            stations=stations,
-            robot_starts=robot_starts,
-            chargers=chargers,
-        )
+        return replace(layout, robot_starts=robot_starts)
 
     @classmethod
     def from_ascii(cls, rows: list[str], *, top_down: bool = False) -> WarehouseLayout:

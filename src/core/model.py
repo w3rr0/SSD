@@ -365,6 +365,7 @@ class Warehouse(Model):
 
         self._record_station_waits()
         self._record_traffic_waits(standing)
+        self._leave_rack_slots()
         self._clear_idle_blockers()
         self._replan_around_standing()
         self._check_deadlock()
@@ -565,6 +566,30 @@ class Warehouse(Model):
                 self._station_wait_started[robot.robot_id] = float(self.time)
                 changed = True
 
+    def _rack_slots_are_pockets(self) -> bool:
+        traffic = self.config.traffic
+        return traffic.leave_rack_slots and not traffic.empty_under_racks
+
+    def _leave_rack_slots(self) -> None:
+        """Without driving under racks, send idle robots out of rack slots.
+
+        A robot that has just put a rack back stands under it, in a pocket
+        between standing racks with one way out. If it stays there idle
+        (no task yet, or waiting for a free charger), the next robot that
+        comes for that rack waits in the only way out and neither can move.
+        With ``empty_under_racks`` the robot may simply stay under the rack
+        (``TrafficParams.leave_rack_slots``).
+        """
+        if not self._rack_slots_are_pockets():
+            return
+        slots = set(self.layout.racks.values())
+        for robot in self.robots:
+            if robot.pos not in slots or not self._can_step_aside(robot):
+                continue
+            route = self._yield_path(robot)
+            if route is not None:
+                self._begin_yield(robot, route)
+
     def _clear_idle_blockers(self) -> None:
         """Ask an idle robot to step aside when it blocks a working one.
 
@@ -743,6 +768,12 @@ class Warehouse(Model):
             if avoid_routes
             else set()
         )
+        if self._rack_slots_are_pockets():
+            # Without driving under racks an empty rack slot is a dead-end
+            # pocket between standing racks: a robot parked there can only
+            # leave the way it came, and the rack's robot needs that very
+            # cell to put the rack back. Pass through such slots, never stop.
+            traffic |= set(self.layout.racks.values())
 
         start = robot.pos
         parents: dict[Coordinate, Coordinate | None] = {start: None}

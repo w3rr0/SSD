@@ -37,8 +37,10 @@ uv run python -c "from src.environment.layout_io import load_layout; load_layout
 - Krótsze wiersze są dopełniane spacjami (poza budynkiem).
 - Regały, stanowiska i ładowarki są przeszkodami: każdy musi dotykać alejki
   połączonej z resztą magazynu, inaczej plik zostanie odrzucony.
-- Brakujące miejsca startowe robotów są dobierane z wolnych alejek (od dołu),
-  więc liczba `B` nie ogranicza liczby robotów.
+- Brakujące miejsca startowe robotów są dobierane z wolnych alejek, więc
+  liczba `B` nie ogranicza liczby robotów. Najpierw brane są pola, które nie
+  dotykają regału, stanowiska ani ładowarki (ani pola dojazdu do nich), potem
+  od dołu.
 - Stanowiska i ładowarki zwykle stoją w linii ściany, z alejką przed nimi.
 
 ## Generator Kiva
@@ -51,6 +53,10 @@ Zamiast mapy można podać parametry `WarehouseLayout.generate`:
   "generator": {"block_columns": 6, "block_rows": 4, "num_stations": 3}
 }
 ```
+
+Generator stawia ładowarki na końcach poprzecznych alejek (robot ładujący się
+lub czekający na ładowarkę nie stoi przy regale) i dodaje na dole rząd
+postojowy: roboty startują tam, a nie w alejce, z której wjeżdża się pod regały.
 
 Dozwolone klucze: `block_columns`, `block_rows`, `block_length`,
 `block_depth`, `num_stations`, `num_chargers`, `num_robots`, `width`,
