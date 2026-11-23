@@ -812,6 +812,63 @@ budowania przebiegu do porównań.
 (±40–70 s przy średniej ok. 140 s), więc różnice poniżej ok. 30% przy ×5
 traktujemy jako niepewne. Jedna konfiguracja (kiva_standard, 8/16 robotów).
 
+## 11. Walidacja z teorią kolejek po zasadach ruchu
+
+**Problem.** `runners/queue_validation.py` (część B: cały magazyn, jedno
+stanowisko, 40 robotów, 8 ustawień × 20 powtórzeń) przerywał się na pierwszym
+`DeadlockError`, także po zasadach ruchu z sekcji 10. Przy nich zakleszczał się
+1 przebieg ze 160 (rozkład wykładniczy, ρ = 0,9, seed 8). Ze starymi zasadami
+(`TrafficParams.off()`) zakleszcza się 152 ze 160, więc wynik „6 z 8” podawany
+wcześniej w README nie daje się odtworzyć na obecnym kodzie.
+
+**Co pokazały przebiegi** (zasady z sekcji 10, 159 udanych przebiegów):
+
+| Obsługa | ρ | Wzór M/G/1 [s] | Symulacja [s] | ρ zmierzone | Czekanie na robota [s] |
+| --- | --- | --- | --- | --- | --- |
+| stała | 0,3 | 3,2 | 5,1 ± 0,3 | 0,30 | 0,8 |
+| stała | 0,5 | 7,5 | 11,3 ± 0,3 | 0,50 | 1,1 |
+| stała | 0,7 | 17,5 | 20,9 ± 0,5 | 0,70 | 8,0 |
+| stała | 0,9 | 67,5 | 26,2 ± 0,1 | 0,78 | 417 |
+| wykładnicza | 0,3 | 6,4 | 7,7 ± 0,8 | 0,30 | 0,8 |
+| wykładnicza | 0,5 | 15,0 | 14,1 ± 0,8 | 0,50 | 1,7 |
+| wykładnicza | 0,7 | 35,0 | 22,2 ± 0,4 | 0,70 | 18,8 |
+| wykładnicza | 0,9 | 135,0 | 25,8 ± 0,2 | 0,78 | 585 |
+
+Żadne ustawienie nie mieści się w przedziale ufności. Powody wynikają z zasad
+ruchu, a nie z błędu kolejki (część A, samo stanowisko z przyjściami
+Poissona, w `tests/test_queueing.py`, dalej zgadza się ze wzorem):
+
+- **Przekazanie stanowiska.** Następny robot czeka pole przed stanowiskiem
+  (`keep_station_front_free`), więc po każdej obsłudze stanowisko stoi, aż
+  podjedzie. To dokłada stały czas do każdej obsługi: przy małym ruchu
+  kolejka jest dłuższa niż ze wzoru (5,1 s wobec 3,2 s).
+- **Limit robotów przy stanowisku** (`station_queue_limit = 3`). Limit liczy
+  też roboty, które dopiero jadą z regałem z daleka. Przy ρ = 0,9 stanowisko
+  czeka na nie i pracuje tylko 78% czasu, a reszta czeka pod regałami
+  (czekanie zamówienia na robota rośnie do 7–10 min). Kolejka do stanowiska
+  ma wtedy z definicji najwyżej 2 roboty, więc to już nie jest układ M/G/1.
+  Przy ρ = 0,7 obsługa wykładnicza też jest ścięta (22 s wobec 35 s).
+- Sprawdzone: bez limitu zakleszcza się wyjazd ze stanowiska (robot po
+  kompletacji nie ma którędy odjechać, bo trzy sąsiednie pola zajmują
+  czekający). Dodatkowy pas wyjazdu przesuwa zakleszczenia w głąb alejek,
+  więc limit jest potrzebny dla całego ruchu.
+
+**Decyzja (runner).** Przebieg z zakleszczeniem liczy się jako nieudany
+i nie przerywa całości, jak w runnerze scenariuszy (⚠ przy ponad 10%
+nieudanych). Ustawienie, w którym stanowisko nie osiąga zadanego obciążenia
+(o więcej niż 0,05), dostaje kod `LIMIT` zamiast `OK` / `NOT OK`, bo wzór go
+nie opisuje.
+
+**Do decyzji zespołu.**
+- A) Walidacją z teorią kolejek jest część A (stanowisko), a część B
+  pokazuje, ile kosztują zasady ruchu przy stanowisku. Najszybsze, uczciwe.
+- B) Limit liczy tylko roboty blisko stanowiska (np. w promieniu kilku pól),
+  a nie wszystkie jadące. Prawdopodobnie poprawiłoby też szczyt (sekcja 10:
+  stanowiska zajęte ok. 50% czasu przy Black Friday), ale trzeba sprawdzić
+  zakleszczenia od nowa.
+- C) Do wzoru wchodzi czas obsługi powiększony o zmierzony czas przekazania
+  stanowiska (M/G/1 z czasem przezbrojenia). Nie rozwiązuje ρ = 0,9.
+
 ## Sprawy otwarte
 - Zakleszczenia: rozwiązane zasadami ruchu z sekcji 10 dla zwykłego dnia
   i ruchu do ×5. Zostaje: kilka przypadków przy Black Friday (głównie układ

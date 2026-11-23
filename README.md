@@ -13,11 +13,12 @@ Potrzebny Python 3.15 i [uv](https://docs.astral.sh/uv/).
 uv sync
 uv run data/download_olist.py   # dane Olist do data/raw/ (szczegóły: data/README.md)
 make test                       # testy
-make visual                     # wizualizacja w przeglądarce (port 8521), to samo: make run_visual
+make visual                     # wizualizacja w przeglądarce (port 8521)
 make scenarios                  # scenariusze, wyniki w output/scenarios/
 ```
 
-Inne cele: `run_visual_olist` (ta sama wizualizacja na porcie 8522), `baseline` (szybki pomiar),
+Inne cele: `download_olist`, `record` (zapis jednego przebiegu do CSV/JSON),
+`run_visual_olist` (ta sama wizualizacja na porcie 8522), `baseline` (szybki pomiar),
 `olist_report`, `olist_validation`, `olist_plots`, `queue_validation`.
 
 ## Wizualizacja
@@ -53,22 +54,25 @@ zamówień demo.
   i oba sposoby przydziału zadań.
 - Zamówienia z Olist (kalibracja na 2017, walidacja na 2018: 4 z 5
   porównań zgodne).
-- Walidacja z teorią kolejek: 6 z 8 ustawień w przedziale ufności.
 - Runner wszystkich scenariuszy z opisu (bez awarii a pilnych zamówień).
-- Przy małym ruchu (zwykły dzień, kilka robotów) symulacja przechodzi.
+- Zakleszczenia usunięte zasadami ruchu (`TrafficParams`, opis w
+  `docs/decyzje_dane_olist.md`, sekcja 10): 1,6% zakleszczonych przebiegów
+  zamiast 47%; zwykły dzień i ruch do ×5 bez zakleszczeń.
 
-**Nie działa: zakleszczenia robotów**
-- Przy większym ruchu albo większej flocie roboty się blokują
-  (`DeadlockError`). W pilotażu żaden przebieg w szczycie nie doszedł do
-  końca. W wizualizacji przy ruchu ×20 zakleszcza się 25–80% przebiegów,
-  zależnie od liczby robotów.
-- Przyczyna: alejki o szerokości jednego pola z ruchem w obie strony,
-  a do tego bezczynne roboty na miejscach startowych przy stanowiskach.
-  Odsunięcie miejsc startowych pomaga tylko częściowo.
-- Do decyzji zespołu: jazda pustego robota pod regałami (jak w Kiva),
-  alejki jednokierunkowe, szersze alejki albo lepsze rozładowywanie korków.
-- Przy 2 robotach i dużym ruchu roboty potrafią też krążyć przy
-  stanowiskach, aż rozładują baterie (model tego nie wykrywa).
+**Walidacja z teorią kolejek**
+- Część A (samo stanowisko, `tests/test_queueing.py`) zgadza się ze wzorem
+  M/G/1.
+- Część B (cały magazyn, `runners/queue_validation.py`) po zasadach ruchu nie
+  mieści się w przedziale ufności w żadnym z 8 ustawień: przekazanie
+  stanowiska wydłuża kolejkę, a limit 3 robotów przy stanowisku przy ρ = 0,9
+  ogranicza wykorzystanie stanowiska do 78% (kod `LIMIT`). Szczegóły i opcje:
+  sekcja 11 w `docs/decyzje_dane_olist.md`.
+
+**Zostaje**
+- Kilka zakleszczeń przy Black Friday (głównie układ `hala_L`) i przeciążenie
+  szczytu w całej dobie (`TimeoutError`).
+- Przy 2 robotach i dużym ruchu roboty potrafią krążyć przy stanowiskach,
+  aż rozładują baterie (model tego nie wykrywa).
 
 **Do ustalenia**
 - **Pilne zamówienia w scenariuszu z awariami.** Opis projektu każe
@@ -86,6 +90,7 @@ zamówień demo.
   przez podklasę w runnerach).
 
 **Następne kroki**
-1. Decyzja i poprawka zakleszczeń.
-2. Sprawdzenie poprawki runnerem na wszystkich scenariuszach.
-3. Pełne liczenie scenariuszy (ok. 45 min), wykresy i wnioski.
+1. Decyzja o walidacji części B (opcje A–C w sekcji 11 decyzji).
+2. Runner scenariuszy: odróżnić zakleszczenie od przeciążenia (`TimeoutError`).
+3. Pełne liczenie scenariuszy (najpierw usunąć stary `output/scenarios/runs.csv`),
+   wykresy i wnioski do sprawozdania.
